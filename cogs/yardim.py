@@ -1,0 +1,108 @@
+"""cogs/yardim.py — /yardım komutu."""
+
+import logging
+import discord
+from discord import app_commands
+from discord.ext import commands
+from config.settings import Settings
+
+log = logging.getLogger("cog.yardim")
+
+
+class YardimCog(commands.Cog, name="Yardım"):
+
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot      = bot
+        self.settings = Settings()
+
+    @app_commands.command(name="yardım", description="Botun tüm komutlarını gösterir")
+    async def yardim(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+
+        embed = discord.Embed(color=self.settings.renkler["altin"])
+
+        if guild and guild.icon:
+            embed.set_author(name=f"{guild.name} — Komut Rehberi", icon_url=guild.icon.url)
+        else:
+            embed.set_author(name="Ascelia Bot — Tüm Komutlar")
+
+        embed.description = "```\n⚔️  Ascelia Bot — Tüm Komutlar\n```"
+
+        # ── Genel ──────────────────────────────────────────────
+        embed.add_field(
+            name="<a:genel:1478389856874004592>  Genel",
+            value=(
+                "> <:dot1:1478383822625181879> `/yardım` — Bu menü\n"
+                "> <:dot1:1478383822625181879> `/sss` — Sıkça sorulan sorular"
+            ),
+            inline=False,
+        )
+
+        # ── Destek ─────────────────────────────────────────────
+        embed.add_field(
+            name="<a:ticket1:1478391380635287725>  Destek Sistemi",
+            value="> <:dot2:1478383869534404712> `/ticket` — Yeni destek talebi oluştur",
+            inline=False,
+        )
+
+        # ── Başvuru ────────────────────────────────────────────
+        embed.add_field(
+            name="<a:basvuru:1478389708932255775>  Başvuru Sistemi",
+            value="> <:dot3:1478383947976282275> `/başvuru` — Moderatör veya İçerik Üreticisi başvurusu yap",
+            inline=False,
+        )
+
+        # ── Geri Bildirim ──────────────────────────────────────
+        embed.add_field(
+            name="<a:bildirim:1478390691334979645>  Geri Bildirim",
+            value=(
+                "> <:dot4:1478383949620449290> `/öneri` — Sunucu için öneri gönder\n"
+                "> <:dot4:1478383949620449290> `/şikayet` — Oyuncu hakkında şikayet bildir"
+            ),
+            inline=False,
+        )
+
+        # ── Ayırıcı ────────────────────────────────────────────
+        embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", value="\u200b", inline=False)
+
+        # ── M2B Coin Sistemi ───────────────────────────────────
+        embed.add_field(
+            name="<a:coin:1478390167310958734>  M2Board Coin Sistemi",
+            value=(
+                "> <:dot1:1478383822625181879> `/günlük-giriş` — Günlük 1–50 M2B Coin kazan\n"
+                "> <:dot1:1478383822625181879> `/bakiye` — M2B Coin bakiyeni gör\n"
+                "> <:dot1:1478383822625181879> `/bakiye @kullanıcı` — Birinin bakiyesine bak\n"
+                "> <:dot1:1478383822625181879> `/sıralama` — En zengin 10 kişi\n"
+                "> <:dot1:1478383822625181879> `/market` — MP Kuponlarını satın al\n"
+                "> <:dot1:1478383822625181879> `/transfer @kullanıcı <miktar>` — Coin gönder"
+            ),
+            inline=False,
+        )
+
+        # ── Ayırıcı ────────────────────────────────────────────
+        embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", value="\u200b", inline=False)
+
+        # ── Mini Oyun ──────────────────────────────────────────
+        embed.add_field(
+            name="🎮  Mini Oyun",
+            value=(
+                "> <:dot1:1478383822625181879> `/düello @kullanıcı <bahis>` — Coin bahisli Taş-Kağıt-Makas düellosu\n"
+                "> <:dot1:1478383822625181879> 3 tur oynanır, kazanan tüm potu alır!"
+            ),
+            inline=False,
+        )
+
+        if guild and guild.icon:
+            embed.set_thumbnail(url=guild.icon.url)
+
+        embed.set_footer(
+            text="Ascelia Bot • AWGames | Bot Owner: Aselica | 🔹 Üye  🔸 Admin",
+            icon_url=guild.icon.url if guild and guild.icon else None,
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        log.info(f"/yardım — {interaction.user}")
+
+
+async def setup(bot: commands.Bot) -> None:
+    await bot.add_cog(YardimCog(bot))
