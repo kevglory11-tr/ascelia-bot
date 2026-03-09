@@ -1,34 +1,24 @@
-"""
-cogs/hazine.py — Goblin Hazinesi.
-1-5 saat aralığında belirlenen kanala embed atar.
-İlk reaksiyona basan 1-200 coin kazanır. Tek kişi açabilir.
-"""
+"""cogs/hazine.py — Goblin Hazinesi. 1-5 saat aralığında tek kişi açar."""
 
-import random
-import asyncio
+import random, asyncio, os
 import discord
 from discord.ext import commands
 
 import database
 from utils.logger import setup_logger
 from config.coin_settings import (
-    HAZINE_KANAL_ID,
-    HAZINE_MIN_SAAT, HAZINE_MAX_SAAT,
+    HAZINE_KANAL_ID, HAZINE_MIN_SAAT, HAZINE_MAX_SAAT,
     HAZINE_MIN_COIN, HAZINE_MAX_COIN,
 )
 
-log = setup_logger("hazine")
-HAZINE_EMOJI = "💰"
+log            = setup_logger("hazine")
+HAZINE_EMOJI   = "💰"
+M2B            = "<:m2bcoin:1480481551337783437>"
+OK             = "<a:check:1478394670856933429>"
+COIN_ANIM      = "<a:coin:1478390167310958734>"
 
-# Kapalı sandık görseli
-SANDIK_KAPALI_URL = "https://i.imgur.com/placeholder_kapali.jpg"
-# Açık sandık görseli
-SANDIK_ACIK_URL   = "https://i.imgur.com/placeholder_acik.jpg"
-
-# Görselleri Discord'a yüklü değilse attachment olarak kullan
-import os
-SANDIK_KAPALI_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "sandik_kapali.jpg")
-SANDIK_ACIK_PATH   = os.path.join(os.path.dirname(__file__), "..", "assets", "sandik_acik.jpg")
+SANDIK_KAPALI = os.path.join(os.path.dirname(__file__), "..", "assets", "sandik_kapali.jpg")
+SANDIK_ACIK   = os.path.join(os.path.dirname(__file__), "..", "assets", "sandik_acik.jpg")
 
 
 class HazineCog(commands.Cog):
@@ -40,13 +30,8 @@ class HazineCog(commands.Cog):
     async def _dongu(self):
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
-            bekleme = random.randint(
-                HAZINE_MIN_SAAT * 3600,
-                HAZINE_MAX_SAAT * 3600,
-            )
-            saat = bekleme // 3600
-            dk   = (bekleme % 3600) // 60
-            log.info(f"Sonraki hazine: {saat}s {dk}dk sonra")
+            bekleme = random.randint(HAZINE_MIN_SAAT * 3600, HAZINE_MAX_SAAT * 3600)
+            log.info(f"Sonraki hazine: {bekleme//3600}s {(bekleme%3600)//60}dk sonra")
             await asyncio.sleep(bekleme)
             await self._gonder()
 
@@ -63,7 +48,7 @@ class HazineCog(commands.Cog):
             title="🎁 M2Board'ın Gizemli Hazinesi Belirdi!",
             description=(
                 "**M2Board'ın gizemli hazinesi belirdi!**\n\n"
-                f"> **{HAZINE_EMOJI}** emojisine tıkla, hazine sandığını hızlı olan kapar!\n\n"
+                f"> {HAZINE_EMOJI} emojisine tıkla, hazine sandığını hızlı olan kapar!\n\n"
                 "⏳ Sandık **60 saniye** sonra kaybolur!"
             ),
             color=0xFFD700,
@@ -71,11 +56,10 @@ class HazineCog(commands.Cog):
         embed.set_footer(text="M2Board Coin Sistemi • Hazineyi ilk açan kazanır!")
 
         try:
-            # Kapalı sandık görselini dosya olarak gönder
-            with open(SANDIK_KAPALI_PATH, "rb") as f:
-                dosya  = discord.File(f, filename="sandik_kapali.jpg")
+            with open(SANDIK_KAPALI, "rb") as f:
+                dosya = discord.File(f, filename="sandik_kapali.jpg")
                 embed.set_image(url="attachment://sandik_kapali.jpg")
-                mesaj  = await kanal.send(file=dosya, embed=embed)
+                mesaj = await kanal.send(file=dosya, embed=embed)
 
             await mesaj.add_reaction(HAZINE_EMOJI)
             self.aktif_mesaj = mesaj
@@ -87,31 +71,24 @@ class HazineCog(commands.Cog):
                 except Exception:
                     pass
                 self.aktif_mesaj = None
-
-                # Süre doldu embed
                 embed_bos = discord.Embed(
                     title="💨 Hazine Kayboldu!",
                     description="Kimse açmadı... Hazine karanlığa geri döndü.",
                     color=0x95A5A6,
                 )
                 await kanal.send(embed=embed_bos, delete_after=15)
-                log.info("Hazine süresi doldu.")
-
         except Exception as e:
             log.error(f"Hazine gönderilemedi: {e}", exc_info=True)
 
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
-        if user.bot:
-            return
-        if not self.aktif_mesaj:
+        if user.bot or not self.aktif_mesaj:
             return
         if reaction.message.id != self.aktif_mesaj.id:
             return
         if str(reaction.emoji) != HAZINE_EMOJI:
             return
 
-        # Kilitle — sadece ilk kişi geçer
         mesaj            = self.aktif_mesaj
         self.aktif_mesaj = None
 
@@ -123,20 +100,19 @@ class HazineCog(commands.Cog):
         except Exception:
             pass
 
-        # Açık sandık görseli ile kazanma embed'i
         embed = discord.Embed(
-            title="🎉 Hazine Sandığı Açıldı!",
+            title=f"{OK} Hazine Sandığı Açıldı!",
             description=(
-                f"**M2Board gizemli hazinesinden {coin} <a:coin:1478390167310958734> kazandın, "
+                f"**M2Board gizemli hazinesinden {coin} {M2B} kazandın,\n"
                 f"baya hızlısın vesselam** {user.mention} 🎊\n\n"
-                f"💰 Yeni bakiyen: **{yeni_bakiye:,} M2B Coin**"
+                f"{COIN_ANIM} Yeni bakiyen: **{yeni_bakiye:,} M2B Coin**"
             ),
             color=0xFFD700,
         )
         embed.set_footer(text="M2Board Coin Sistemi • /bakiye ile bakiyeni gör")
 
         try:
-            with open(SANDIK_ACIK_PATH, "rb") as f:
+            with open(SANDIK_ACIK, "rb") as f:
                 dosya = discord.File(f, filename="sandik_acik.jpg")
                 embed.set_image(url="attachment://sandik_acik.jpg")
                 await mesaj.channel.send(file=dosya, embed=embed)

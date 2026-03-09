@@ -1,7 +1,4 @@
-"""
-cogs/gunluk_giris.py — /günlük-giriş komutu.
-TR saatine göre (UTC+3) günde 1 kez, 1-50 coin.
-"""
+"""cogs/gunluk_giris.py — /günlük-giriş komutu."""
 
 import random
 import discord
@@ -13,8 +10,12 @@ import database
 from utils.logger import setup_logger
 from config.coin_settings import GUNLUK_MIN_COIN, GUNLUK_MAX_COIN
 
-log = setup_logger("gunluk_giris")
+log       = setup_logger("gunluk_giris")
 TR_OFFSET = timedelta(hours=3)
+M2B       = "<:m2bcoin:1480481551337783437>"
+OK        = "<a:check:1478394670856933429>"
+FAIL      = "<a:redx:1478394672012034088>"
+COIN_ANIM = "<a:coin:1478390167310958734>"
 
 
 def _bugun_tr() -> str:
@@ -34,16 +35,15 @@ class GunlukGirisCog(commands.Cog):
             son    = str(kayit["son_giris"]) if kayit["son_giris"] else None
 
             if son == bugun:
-                yarin_tr  = (datetime.now(timezone.utc) + TR_OFFSET + timedelta(days=1)).replace(
-                    hour=0, minute=0, second=0, microsecond=0)
                 embed = discord.Embed(
-                    title="⏰ Bugünkü Ödülünü Aldın!",
+                    title=f"{FAIL} Bugünkü Ödülünü Zaten Aldın!",
                     description=(
-                        f"Zaten aldın. Yarın **00:00 TR** saatinde tekrar kullanabilirsin.\n"
-                        f"💰 Bakiyen: **{kayit['bakiye']:,} Coin**"
+                        f"Yarın **00:00 TR** saatinde tekrar kullanabilirsin.\n\n"
+                        f"{M2B} Bakiyen: **{kayit['bakiye']:,} M2B Coin**"
                     ),
                     color=0xE74C3C,
                 )
+                embed.set_thumbnail(url=interaction.user.display_avatar.url)
                 await interaction.followup.send(embed=embed)
                 return
 
@@ -52,22 +52,22 @@ class GunlukGirisCog(commands.Cog):
             await database.set_son_giris(interaction.user.id)
 
             embed = discord.Embed(
-                title="✅ Günlük Giriş Ödülü!",
+                title=f"{OK} Günlük Giriş Ödülü!",
                 description=(
-                    f"🎉 {interaction.user.mention} **{coin} M2B Coin** kazandı!\n\n"
-                    f"💰 Yeni bakiyen: **{yeni_bakiye:,} Coin**\n"
+                    f"{COIN_ANIM} {interaction.user.mention} **{coin} M2B Coin** kazandı!\n\n"
+                    f"{M2B} Yeni bakiyen: **{yeni_bakiye:,} M2B Coin**\n"
                     f"📅 Yarın tekrar gel!"
                 ),
                 color=0x2ECC71,
             )
             embed.set_thumbnail(url=interaction.user.display_avatar.url)
-            embed.set_footer(text="/kasa · /market")
+            embed.set_footer(text="/bakiye · /market")
             await interaction.followup.send(embed=embed)
             log.info(f"Günlük: {interaction.user} → +{coin} coin")
 
         except Exception as e:
             log.error(f"günlük-giriş hatası: {e}", exc_info=True)
-            await interaction.followup.send("Bir hata oluştu.", ephemeral=True)
+            await interaction.followup.send(f"{FAIL} Bir hata oluştu.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

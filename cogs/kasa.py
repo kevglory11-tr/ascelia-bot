@@ -1,6 +1,4 @@
-"""
-cogs/kasa.py — /bakiye ve /sıralama komutları.
-"""
+"""cogs/kasa.py — /bakiye ve /sıralama komutları."""
 
 import discord
 from discord.ext import commands
@@ -9,7 +7,10 @@ from discord import app_commands
 import database
 from utils.logger import setup_logger
 
-log = setup_logger("kasa")
+log    = setup_logger("kasa")
+M2B    = "<:m2bcoin:1480481551337783437>"
+FAIL   = "<a:redx:1478394672012034088>"
+TROPHY = "<a:bildirim:1478390691334979645>"
 
 
 class KasaCog(commands.Cog):
@@ -32,21 +33,23 @@ class KasaCog(commands.Cog):
                 )
 
             embed = discord.Embed(
-                title=f"<a:coin:1478390167310958734> {hedef.display_name} — Bakiye",
+                title=f"{M2B} {hedef.display_name} — Bakiye",
                 color=0xFFD700,
             )
             embed.set_thumbnail(url=hedef.display_avatar.url)
-            embed.add_field(name="<a:coin:1478390167310958734> Bakiye",    value=f"**{bakiye:,}** M2B Coin", inline=True)
-            embed.add_field(name="📈 Toplam Kazanılan",                    value=f"**{toplam:,}** Coin",     inline=True)
-            embed.add_field(name="🏆 Sıralama",                            value=f"**#{sira}**",             inline=True)
-            embed.add_field(name="📅 Son Giriş",
-                            value=str(kayit["son_giris"]) if kayit["son_giris"] else "Hiç yapılmadı",
-                            inline=False)
+            embed.add_field(name=f"{M2B} Bakiye",       value=f"**{bakiye:,}** M2B Coin", inline=True)
+            embed.add_field(name="📈 Toplam Kazanılan",  value=f"**{toplam:,}** Coin",     inline=True)
+            embed.add_field(name="🏆 Sıralama",          value=f"**#{sira}**",             inline=True)
+            embed.add_field(
+                name="📅 Son Giriş",
+                value=str(kayit["son_giris"]) if kayit["son_giris"] else "Henüz yapılmadı",
+                inline=False,
+            )
             embed.set_footer(text="/günlük-giriş · /market · /sıralama")
             await interaction.followup.send(embed=embed)
         except Exception as e:
             log.error(f"bakiye hatası: {e}", exc_info=True)
-            await interaction.followup.send("Bir hata oluştu.", ephemeral=True)
+            await interaction.followup.send(f"{FAIL} Bir hata oluştu.", ephemeral=True)
 
     @app_commands.command(name="sıralama", description="En zengin 10 M2B Coin sahibini gör.")
     async def siralama(self, interaction: discord.Interaction):
@@ -57,21 +60,22 @@ class KasaCog(commands.Cog):
                 await interaction.followup.send("Henüz kayıtlı kimse yok!", ephemeral=True)
                 return
 
-            embed = discord.Embed(
-                title="<a:coin:1478390167310958734> M2B Coin — Sıralama",
-                color=0xFFD700,
-            )
             madalyalar = ["🥇", "🥈", "🥉"]
             satirlar   = ""
             for i, row in enumerate(liste, 1):
-                medal    = madalyalar[i-1] if i <= 3 else f"`{i}.`"
-                satirlar += f"{medal} **{row['username']}** — {row['bakiye']:,} Coin\n"
-            embed.description = satirlar
+                medal    = madalyalar[i - 1] if i <= 3 else f"`{i}.`"
+                satirlar += f"{medal} **{row['username']}** — {row['bakiye']:,} {M2B}\n"
+
+            embed = discord.Embed(
+                title=f"{M2B} M2B Coin — Sıralama",
+                description=satirlar,
+                color=0xFFD700,
+            )
             embed.set_footer(text="/bakiye ile kendi bakiyeni gör")
             await interaction.followup.send(embed=embed)
         except Exception as e:
             log.error(f"sıralama hatası: {e}", exc_info=True)
-            await interaction.followup.send("Bir hata oluştu.", ephemeral=True)
+            await interaction.followup.send(f"{FAIL} Bir hata oluştu.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

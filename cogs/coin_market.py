@@ -1,8 +1,4 @@
-"""
-cogs/coin_market.py — /market komutu.
-Dropdown select menü ile MP Kuponu satın alma.
-Herkes için aynı ürünler.
-"""
+"""cogs/coin_market.py — /market komutu."""
 
 import discord
 from discord.ext import commands
@@ -14,16 +10,21 @@ from config.coin_settings import MARKET_URUNLER
 
 log = setup_logger("coin_market")
 
+M2B    = "<:m2bcoin:1480481551337783437>"
+OK     = "<a:check:1478394670856933429>"
+FAIL   = "<a:redx:1478394672012034088>"
+SHOP   = "<a:genel:1478389856874004592>"
+
 
 class MarketSelect(discord.ui.Select):
     def __init__(self, discord_id: int, bakiye: int):
         self.discord_id = discord_id
         options = []
         for urun in MARKET_URUNLER:
-            yeterli = "✅" if bakiye >= urun["fiyat"] else "❌"
+            durum = "✦" if bakiye >= urun["fiyat"] else "🔒"
             options.append(discord.SelectOption(
-                label=f"{urun['isim']}",
-                description=f"{yeterli} {urun['fiyat']:,} M2B Coin",
+                label=urun["isim"],
+                description=f"{durum}  {urun['fiyat']:,} M2B Coin",
                 value=urun["id"],
                 emoji="🎟️",
             ))
@@ -37,7 +38,7 @@ class MarketSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.discord_id:
             await interaction.response.send_message(
-                "Bu menü sana ait değil! `/market` yaz.", ephemeral=True
+                f"{FAIL} Bu menü sana ait değil! `/market` yaz.", ephemeral=True
             )
             return
 
@@ -50,17 +51,25 @@ class MarketSelect(discord.ui.Select):
 
         kayit = await database.ensure_user(interaction.user.id, interaction.user.display_name)
         if kayit["bakiye"] < urun["fiyat"]:
-            await interaction.followup.send(
-                f"❌ **Yetersiz bakiye!**\n"
-                f"> Gerekli: **{urun['fiyat']:,} Coin**\n"
-                f"> Bakiyen: **{kayit['bakiye']:,} Coin**",
-                ephemeral=True,
+            embed = discord.Embed(
+                title=f"{FAIL} Yetersiz Bakiye!",
+                description=(
+                    f"> Gerekli: **{urun['fiyat']:,}** {M2B}\n"
+                    f"> Bakiyen: **{kayit['bakiye']:,}** {M2B}"
+                ),
+                color=0xE74C3C,
             )
+            await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
         basarili = await database.remove_coins(interaction.user.id, urun["fiyat"])
         if not basarili:
-            await interaction.followup.send("❌ İşlem başarısız, tekrar dene.", ephemeral=True)
+            embed = discord.Embed(
+                title=f"{FAIL} İşlem Başarısız",
+                description="Bir sorun oluştu, lütfen tekrar dene.",
+                color=0xE74C3C,
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
         async with database.pool.acquire() as conn:
@@ -71,18 +80,17 @@ class MarketSelect(discord.ui.Select):
 
         kayit = await database.ensure_user(interaction.user.id, interaction.user.display_name)
         embed = discord.Embed(
-            title="<a:check:1478394670856933429> Satın Alındı!",
+            title=f"{OK} Satın Alındı!",
             description=(
                 f"🎟️ **{urun['isim']}** başarıyla satın alındı!\n\n"
-                f"💸 Ödenen: **{urun['fiyat']:,} Coin**\n"
-                f"<a:coin:1478390167310958734> Kalan bakiye: **{kayit['bakiye']:,} Coin**"
+                f"💸 Ödenen: **{urun['fiyat']:,}** {M2B}\n"
+                f"{M2B} Kalan bakiye: **{kayit['bakiye']:,}** M2B Coin"
             ),
             color=0x2ECC71,
         )
         embed.set_footer(text="🎫 Kupon aktivasyonu için ticket aç!")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-        # Select'i devre dışı bırak
         self.disabled = True
         try:
             await interaction.message.edit(view=self.view)
@@ -110,30 +118,28 @@ class CoinMarketCog(commands.Cog):
             bakiye = kayit["bakiye"]
 
             embed = discord.Embed(
-                title="🛒 M2B Mağazası",
+                title=f"{SHOP} M2B Mağazası",
                 color=0xFFD700,
             )
             embed.description = (
-                f"<a:coin:1478390167310958734> Bakiyen: **{bakiye:,} M2B Coin**\n\n"
+                f"{M2B} Bakiyen: **{bakiye:,} M2B Coin**\n\n"
                 "Aşağıdan satın almak istediğin kuponu seç:"
             )
-
-            # Ürün listesi
             for urun in MARKET_URUNLER:
-                yeterli = "✅" if bakiye >= urun["fiyat"] else "❌"
+                durum = OK if bakiye >= urun["fiyat"] else "🔒"
                 embed.add_field(
-                    name=f"{yeterli} {urun['isim']}",
-                    value=f"🪙 **{urun['fiyat']:,} Coin**",
+                    name=f"{durum} {urun['isim']}",
+                    value=f"{M2B} **{urun['fiyat']:,} Coin**",
                     inline=True,
                 )
-
             embed.set_footer(text="🎫 Kuponu aldıktan sonra ticket aç · /bakiye ile bakiyeni gör")
+
             view = MarketView(interaction.user.id, bakiye)
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
         except Exception as e:
             log.error(f"market hatası: {e}", exc_info=True)
-            await interaction.followup.send("Bir hata oluştu.", ephemeral=True)
+            await interaction.followup.send(f"{FAIL} Bir hata oluştu.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
