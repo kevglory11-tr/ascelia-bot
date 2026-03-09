@@ -60,7 +60,7 @@ class KasaCog(commands.Cog):
                 await interaction.followup.send("Henüz kayıtlı kimse yok!", ephemeral=True)
                 return
 
-            madalyalar = ["🥇", "🥈", "🥉"]
+            madalyalar = ["<a:gold:1478525208766709833>", "<a:silver:1478525216069259487>", "<a:bronze:1478525229583302656>"]
             satirlar   = ""
             for i, row in enumerate(liste, 1):
                 medal    = madalyalar[i - 1] if i <= 3 else f"`{i}.`"
