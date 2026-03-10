@@ -120,6 +120,7 @@ class SkorTahminCog(commands.Cog):
             mac_utc    = mac_zamani.replace(tzinfo=timezone(TR_OFFSET))
             bekle      = (mac_utc - datetime.now(timezone.utc)).total_seconds()
             if bekle > 0:
+                log.info(f"Tahminler {int(bekle//60)}dk {int(bekle%60)}s sonra kapanacak: {mac_id}")
                 await asyncio.sleep(bekle)
 
             async with database.pool.acquire() as conn:
@@ -189,8 +190,10 @@ class SkorTahminCog(commands.Cog):
 
         async with database.pool.acquire() as conn:
             await conn.execute(
-                """INSERT INTO mac_bilgi (mac_id,ev,ev_logo,dep,dep_logo,mac_zamani,kanal_id)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (mac_id) DO NOTHING""",
+                """INSERT INTO mac_bilgi (mac_id,ev,ev_logo,dep,dep_logo,mac_zamani,kanal_id,kapali)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,FALSE)
+                   ON CONFLICT (mac_id) DO UPDATE
+                   SET ev=$2,ev_logo=$3,dep=$4,dep_logo=$5,mac_zamani=$6,kanal_id=$7,kapali=FALSE""",
                 mac_id, ev_takim, ev_logo, dep_takim, dep_logo, zaman_str, kanal.id
             )
 
@@ -200,7 +203,7 @@ class SkorTahminCog(commands.Cog):
             banner = await loop.run_in_executor(
                 None, mac_banner_olustur, ev_logo, dep_logo, ev_takim, dep_takim
             )
-            dosya  = discord.File(banner, filename="mac_banner.png")
+            dosya  = discord.File(banner, filename="mac_banner.gif")
         except Exception as e:
             log.warning(f"Banner oluşturulamadı: {e}")
             dosya = None
@@ -209,10 +212,15 @@ class SkorTahminCog(commands.Cog):
                    "dep": dep_takim, "dep_logo": dep_logo, "mac_zamani": zaman_str, "kapali": False}
         embed   = self._embed_olustur(mac_row, 0, False)
         if dosya:
-            embed.set_image(url="attachment://mac_banner.png")
+            embed.set_image(url="attachment://mac_banner.gif")
 
-        view  = TahminView(mac_id, ev_takim, dep_takim)
-        mesaj = await kanal.send(file=dosya, embed=embed, view=view) if dosya else await kanal.send(embed=embed, view=view)
+        view = TahminView(mac_id, ev_takim, dep_takim)
+        if dosya:
+            # GIF önce ayrı mesaj olarak gönder (embed set_image animasyonu dondurur)
+            gif_mesaj = await kanal.send(file=dosya)
+            mesaj = await kanal.send(embed=embed, view=view)
+        else:
+            mesaj = await kanal.send(embed=embed, view=view)
 
         async with database.pool.acquire() as conn:
             await conn.execute("UPDATE mac_bilgi SET mesaj_id=$1 WHERE mac_id=$2", mesaj.id, mac_id)
