@@ -177,9 +177,11 @@ async def remove_coins(discord_id: int, miktar: int) -> bool:
 
 
 async def set_son_giris(discord_id: int, tarih_str: str) -> None:
+    from datetime import date
+    tarih = date.fromisoformat(tarih_str)
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE coins SET son_giris = $2 WHERE discord_id = $1", discord_id, tarih_str
+            "UPDATE coins SET son_giris = $2 WHERE discord_id = $1", discord_id, tarih
         )
 
 
