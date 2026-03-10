@@ -130,57 +130,5 @@ class AdminCoinCog(commands.Cog):
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
-class TransferOnayView(discord.ui.View):
-    def __init__(self, gonderen_id: int, alici_id: int, miktar: int):
-        super().__init__(timeout=30)
-        self.gonderen_id = gonderen_id
-        self.alici_id    = alici_id
-        self.miktar      = miktar
-
-    @discord.ui.button(label="Onayla", style=discord.ButtonStyle.success, emoji="✅")
-    async def onayla(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.gonderen_id:
-            await interaction.response.send_message("Bu onay sana ait değil!", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-
-        kayit = await database.ensure_user(interaction.user.id, interaction.user.display_name)
-        if kayit["bakiye"] < self.miktar:
-            await interaction.followup.send(f"{FAIL} Yetersiz bakiye!", ephemeral=True)
-            return
-
-        await database.remove_coins(interaction.user.id, self.miktar)
-        alici      = interaction.guild.get_member(self.alici_id)
-        alici_isim = alici.display_name if alici else "Kullanıcı"
-        yeni_alici = await database.add_coins(self.alici_id, alici_isim, self.miktar)
-        yeni_g     = (await database.ensure_user(interaction.user.id, interaction.user.display_name))["bakiye"]
-
-        for item in self.children:
-            item.disabled = True
-        await interaction.message.edit(view=self)
-
-        embed = discord.Embed(
-            title=f"<a:check:1478394670856933429> Transfer Tamamlandı!",
-            description=(
-                f"💸 **{self.miktar:,}** {M2B} gönderildi!\n\n"
-                f"👤 Alıcı: {alici.mention if alici else alici_isim}\n"
-                f"{M2B} Alıcının yeni bakiyesi: **{yeni_alici:,}**\n"
-                f"{M2B} Senin yeni bakiyen: **{yeni_g:,}**"
-            ),
-            color=0x2ECC71,
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    @discord.ui.button(label="İptal", style=discord.ButtonStyle.danger, emoji="❌")
-    async def iptal(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.gonderen_id:
-            await interaction.response.send_message("Bu onay sana ait değil!", ephemeral=True)
-            return
-        for item in self.children:
-            item.disabled = True
-        await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"<a:redx:1478394672012034088> Transfer iptal edildi.", ephemeral=True)
-
-
 async def setup(bot: commands.Bot):
     await bot.add_cog(AdminCoinCog(bot))

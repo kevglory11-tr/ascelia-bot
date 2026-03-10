@@ -183,7 +183,15 @@ class GunlukGorevCog(commands.Cog):
             if tamamlandi:
                 embed.set_footer(text="Yarın yeni bir görev gelecek!")
             else:
-                embed.set_footer(text="Görevi tamamlayınca /günlük-görev-teslim <kanıt> kullan!")
+                embed.add_field(
+                name="📌 Önemli Not",
+                value=(
+                    "Görsel kanıtlarını **[Gyazo](https://gyazo.com)** ile gönder!\n"
+                    "Gyazo dışında gönderilen kanıtlar **kabul edilmeyecektir.**"
+                ),
+                inline=False,
+            )
+            embed.set_footer(text="Görevi tamamlayınca /günlük-görev-teslim kullan!")
 
             await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -192,8 +200,11 @@ class GunlukGorevCog(commands.Cog):
             await interaction.followup.send("❌ Bir hata oluştu.", ephemeral=True)
 
     @app_commands.command(name="günlük-görev-teslim", description="Tamamladığın görevi teslim et!")
-    @app_commands.describe(kanit="Ekran görüntüsü linki veya açıklama")
-    async def gunluk_gorev_teslim(self, interaction: discord.Interaction, kanit: str):
+    @app_commands.describe(
+        oyun_ici_isim="Oyun içindeki karakterin adı",
+        kanit="Gyazo ile aldığın ekran görüntüsü linki (https://gyazo.com)"
+    )
+    async def gunluk_gorev_teslim(self, interaction: discord.Interaction, oyun_ici_isim: str, kanit: str):
         await interaction.response.defer(ephemeral=True)
         try:
             await database.ensure_user(interaction.user.id, interaction.user.display_name)
@@ -236,6 +247,7 @@ class GunlukGorevCog(commands.Cog):
                 value=f"{interaction.user.mention}\n`ID: {interaction.user.id}`",
                 inline=False,
             )
+            embed.add_field(name="🎮 Oyun İçi İsim", value=oyun_ici_isim, inline=False)
             embed.add_field(name="📋 Görev", value=gorev["isim"],              inline=True)
             embed.add_field(name="🎁 Ödül",  value=f"**{gorev['odul']}** {M2B}", inline=True)
             embed.add_field(name="📎 Kanıt", value=kanit,                      inline=False)
