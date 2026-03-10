@@ -75,6 +75,13 @@ async def _create_tables() -> None:
                 miktar          INT DEFAULT 0,
                 created_at      TIMESTAMPTZ DEFAULT NOW()
             );
+
+            CREATE TABLE IF NOT EXISTS gorev_log (
+                discord_id  BIGINT NOT NULL,
+                gorev_id    TEXT   NOT NULL,
+                tarih       TEXT   NOT NULL,
+                PRIMARY KEY (discord_id, gorev_id, tarih)
+            );
         """)
     log.info("✅ Tablolar hazır.")
 
