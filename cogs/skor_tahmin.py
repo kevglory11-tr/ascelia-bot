@@ -311,7 +311,6 @@ class SkorTahminCog(commands.Cog):
                 except Exception:
                     pass
 
-        await interaction.followup.send(f"{OK} Sonuçlar ilan edildi! {len(kazananlar)} kazanan.", ephemeral=True)
         log.info(f"Sonuç: {mac_id} → {gercek_skor} | {len(kazananlar)} kazanan")
 
 
