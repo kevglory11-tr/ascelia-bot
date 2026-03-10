@@ -95,8 +95,8 @@ class AdminCoinCog(commands.Cog):
 
     @app_commands.command(name="admin-tum-coinleri-sil", description="[Admin] Tüm kullanıcıların coinlerini sıfırla.")
     async def admin_tum_coinleri_sil(self, interaction: discord.Interaction):
-        if not self._admin_mi(interaction):
-            await interaction.response.send_message("❌ Yetkin yok!", ephemeral=True)
+        if not _admin_kontrol(interaction):
+            await interaction.response.send_message(f"{FAIL} Bu komutu kullanma yetkin yok!", ephemeral=True)
             return
 
         # Onay butonu
