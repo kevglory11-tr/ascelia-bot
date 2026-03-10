@@ -14,7 +14,7 @@ log       = setup_logger("gunluk_giris")
 TR_OFFSET = timedelta(hours=3)
 M2B       = "<:m2bcoin:1480481551337783437>"
 OK        = "<a:check:1478394670856933429>"
-FAIL      = "<a:redx:1478394672012034088>"
+FAIL      = "❌"
 COIN_ANIM = "<a:coin:1478390167310958734>"
 
 
@@ -49,7 +49,7 @@ class GunlukGirisCog(commands.Cog):
 
             coin        = random.randint(GUNLUK_MIN_COIN, GUNLUK_MAX_COIN)
             yeni_bakiye = await database.add_coins(interaction.user.id, interaction.user.display_name, coin)
-            await database.set_son_giris(interaction.user.id)
+            await database.set_son_giris(interaction.user.id, bugun)
 
             embed = discord.Embed(
                 title=f"{OK} Günlük Giriş Ödülü!",

@@ -130,5 +130,38 @@ class AdminCoinCog(commands.Cog):
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
+    @app_commands.command(name="admin-tum-coinleri-sil", description="[Admin] Tüm kullanıcıların coinlerini sıfırla.")
+    async def admin_tum_coinleri_sil(self, interaction: discord.Interaction):
+        if not self._admin_mi(interaction):
+            await interaction.response.send_message("❌ Yetkin yok!", ephemeral=True)
+            return
+
+        # Onay butonu
+        view = TumCoinSilOnayView()
+        await interaction.response.send_message(
+            "⚠️ **Tüm kullanıcıların coinleri sıfırlanacak!** Emin misin?",
+            view=view, ephemeral=True
+        )
+
+
+class TumCoinSilOnayView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=30)
+
+    @discord.ui.button(label="Evet, Sıfırla", style=discord.ButtonStyle.danger)
+    async def onayla(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with database.pool.acquire() as conn:
+            await conn.execute("UPDATE coins SET bakiye = 0, toplam_kazanilan = 0, son_giris = NULL")
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(
+            content="✅ Tüm coinler sıfırlandı.", view=self
+        )
+
+    @discord.ui.button(label="İptal", style=discord.ButtonStyle.secondary)
+    async def iptal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="❌ İptal edildi.", view=None)
+
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(AdminCoinCog(bot))

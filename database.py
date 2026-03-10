@@ -176,10 +176,10 @@ async def remove_coins(discord_id: int, miktar: int) -> bool:
         return True
 
 
-async def set_son_giris(discord_id: int) -> None:
+async def set_son_giris(discord_id: int, tarih_str: str) -> None:
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE coins SET son_giris = CURRENT_DATE WHERE discord_id = $1", discord_id
+            "UPDATE coins SET son_giris = $2 WHERE discord_id = $1", discord_id, tarih_str
         )
 
 
