@@ -83,23 +83,6 @@ class RedSebebiModal(discord.ui.Modal, title="Reddetme Sebebi"):
 
         uye = interaction.guild.get_member(self.discord_id)
 
-        # Kanala bildirim
-        try:
-            kanal = interaction.guild.get_channel(self.bildirim_kanal_id)
-            if kanal and uye:
-                bildirim = discord.Embed(
-                    title=f"{FAIL_EMO} Görevin Reddedildi",
-                    description=(
-                        f"**{self.gorev['isim']}** görevi onaylanmadı.\n\n"
-                        f"📝 **Sebep:** {self.sebep.value}\n\n"
-                        "Görevi eksiksiz tamamlayıp tekrar dene."
-                    ),
-                    color=0xE74C3C,
-                )
-                await kanal.send(content=uye.mention, embed=bildirim)
-        except Exception as e:
-            log.error(f"Kanal bildirimi gönderilemedi: {e}")
-
         # DM bildirim
         try:
             if uye:
@@ -157,24 +140,6 @@ class GorevOnayView(discord.ui.View):
         embed.color = 0x2ECC71
         embed.set_footer(text=f"✅ Onaylayan: {interaction.user.display_name}")
         await interaction.message.edit(embed=embed, view=self)
-
-        # Kanala bildirim
-        try:
-            kanal = interaction.guild.get_channel(self.bildirim_kanal_id)
-            if kanal and uye:
-                bildirim = discord.Embed(
-                    title=f"{OK} Görevin Onaylandı!",
-                    description=(
-                        f"{BILDIRIM} **{self.gorev['isim']}** görevi onaylandı! 🎉\n\n"
-                        f"{COIN_ANIM} **+{self.gorev['odul']} M2B Coin** hesabına eklendi!\n"
-                        f"{M2B} Yeni bakiyen: **{yeni:,} M2B Coin**\n\n"
-                        f"`/bakiye` yazarak kontrol edebilirsin."
-                    ),
-                    color=0x2ECC71,
-                )
-                await kanal.send(content=uye.mention, embed=bildirim)
-        except Exception as e:
-            log.error(f"Kanal bildirimi gönderilemedi: {e}")
 
         # DM bildirim
         try:
