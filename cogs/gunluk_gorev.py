@@ -12,10 +12,12 @@ from utils.logger import setup_logger
 log       = setup_logger("gunluk_gorev")
 TR_OFFSET = timedelta(hours=3)
 M2B       = "<:m2bcoin:1480481551337783437>"
-OK        = "<a:check:1478394670856933429>"
-FAIL_EMO  = "<a:redx:1478394672012034088>"
+OK        = "<a:olumlutick:1478524954688356494>"
+FAIL_EMO  = "<a:no:1478524993670479942>"
 COIN_ANIM = "<a:coin:1478390167310958734>"
 BILDIRIM  = "<a:bildirim:1478390691334979645>"
+ONERI     = "<a:onerino:1478614338909769799>"
+INSTAGRAM = "<a:ınstagram:1478635152614625281>"
 
 GOREV_KANAL_ID = int(os.getenv("GOREV_KANAL_ID", "0"))
 
@@ -309,7 +311,7 @@ class GunlukGorevCog(commands.Cog):
                 color=0x2ECC71 if tamamlandi else 0xFFD700,
             )
             embed.set_thumbnail(url=interaction.user.display_avatar.url)
-            embed.add_field(name=gorev["isim"], value=gorev["aciklama"], inline=False)
+            embed.add_field(name=f"{INSTAGRAM} {gorev["isim"]}", value=gorev["aciklama"], inline=False)
             embed.add_field(name="🎁 Ödül",    value=f"**{gorev['odul']}** {M2B}", inline=True)
             embed.add_field(
                 name="📌 Durum",
