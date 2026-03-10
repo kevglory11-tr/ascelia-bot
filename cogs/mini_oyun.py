@@ -11,7 +11,7 @@ from utils.logger import setup_logger
 log        = setup_logger("mini_oyun")
 M2B        = "<:m2bcoin:1480481551337783437>"
 OK         = "<a:check:1478394670856933429>"
-FAIL       = "<a:redx:1478394672012034088>"
+FAIL       = "❌"
 COIN_ANIM  = "<a:coin:1478390167310958734>"
 SWORD_ANIM = "<a:ticket1:1478391380635287725>"
 
@@ -39,6 +39,7 @@ class DuelloData:
         self.tur          = 1
         self.skorlar      = {baslatan_id: 0, rakip_id: 0}
         self.kabul_edildi = False
+        self.bitti        = False   # çift bitişi önler
 
 
 class DuelloKabulView(discord.ui.View):
@@ -64,7 +65,7 @@ class DuelloKabulView(discord.ui.View):
         ok2 = await database.remove_coins(self.data.rakip_id,    self.data.bahis)
         if not ok1 or not ok2:
             await interaction.followup.send(f"{FAIL} Coin çekilemedi, düello iptal.", ephemeral=True)
-            del aktif_duellolar[self.data.mesaj.id]
+            aktif_duellolar.pop(self.data.mesaj.id, None)
             return
 
         self.data.kabul_edildi = True
@@ -79,7 +80,7 @@ class DuelloKabulView(discord.ui.View):
             await interaction.response.send_message(f"{FAIL} Bu düello sana ait değil!", ephemeral=True)
             return
         await interaction.response.defer()
-        del aktif_duellolar[self.data.mesaj.id]
+        aktif_duellolar.pop(self.data.mesaj.id, None)
         await self.data.mesaj.edit(
             embed=discord.Embed(title=f"{FAIL} Düello Reddedildi", color=0xE74C3C),
             view=None,
@@ -88,7 +89,7 @@ class DuelloKabulView(discord.ui.View):
     async def on_timeout(self):
         if not self.data.kabul_edildi:
             try:
-                del aktif_duellolar[self.data.mesaj.id]
+                aktif_duellolar.pop(self.data.mesaj.id, None)
                 await self.data.mesaj.edit(
                     embed=discord.Embed(title="⏰ Düello Süresi Doldu", color=0x95A5A6),
                     view=None,
@@ -98,20 +99,26 @@ class DuelloKabulView(discord.ui.View):
 
 
 class TurSecimView(discord.ui.View):
-    def __init__(self, data: DuelloData):
+    def __init__(self, data: DuelloData, tur_no: int):
         super().__init__(timeout=30)
-        self.data = data
+        self.data   = data
+        self.tur_no = tur_no  # hangi tura ait olduğunu takip et
         for label in SECENEKLER:
-            self.add_item(TurSecimButon(label, data))
+            self.add_item(TurSecimButon(label, data, tur_no))
 
 
 class TurSecimButon(discord.ui.Button):
-    def __init__(self, label: str, data: DuelloData):
+    def __init__(self, label: str, data: DuelloData, tur_no: int):
         super().__init__(label=label, style=discord.ButtonStyle.primary)
         self.data       = data
         self.secim_kodu = SECENEKLER[label]
+        self.tur_no     = tur_no
 
     async def callback(self, interaction: discord.Interaction):
+        # Eski tura ait buton tıklamasını yoksay
+        if self.tur_no != self.data.tur:
+            await interaction.response.send_message("Bu tur zaten bitti!", ephemeral=True)
+            return
         if interaction.user.id not in (self.data.baslatan_id, self.data.rakip_id):
             await interaction.response.send_message(f"{FAIL} Bu düello sana ait değil!", ephemeral=True)
             return
@@ -136,14 +143,18 @@ class TurSecimButon(discord.ui.Button):
 
 
 async def _tur_baslat(data: DuelloData, kanal):
+    if data.bitti:
+        return
+
     data.secimler = {}
-    baslatan = kanal.guild.get_member(data.baslatan_id)
-    rakip    = kanal.guild.get_member(data.rakip_id)
-    b_isim   = baslatan.display_name if baslatan else "Oyuncu 1"
-    r_isim   = rakip.display_name    if rakip    else "Oyuncu 2"
+    tur_no        = data.tur   # bu turun numarasını kaydet
+    baslatan      = kanal.guild.get_member(data.baslatan_id)
+    rakip         = kanal.guild.get_member(data.rakip_id)
+    b_isim        = baslatan.display_name if baslatan else "Oyuncu 1"
+    r_isim        = rakip.display_name    if rakip    else "Oyuncu 2"
 
     embed = discord.Embed(
-        title=f"{SWORD_ANIM} Düello — Tur {data.tur}/3",
+        title=f"{SWORD_ANIM} Düello — Tur {tur_no}/3",
         description=(
             f"⚔️ **{b_isim}** vs **{r_isim}**\n\n"
             f"{COIN_ANIM} Pot: **{data.bahis * 2:,}** {M2B}\n"
@@ -152,7 +163,7 @@ async def _tur_baslat(data: DuelloData, kanal):
         ),
         color=0xFF6B35,
     )
-    view  = TurSecimView(data)
+    view  = TurSecimView(data, tur_no)
     mesaj = await kanal.send(
         content=f"{baslatan.mention if baslatan else ''} {rakip.mention if rakip else ''}",
         embed=embed,
@@ -160,7 +171,12 @@ async def _tur_baslat(data: DuelloData, kanal):
     )
     view.message = mesaj
 
+    # 31sn bekle — sadece bu turun timeout'u
     await asyncio.sleep(31)
+
+    # Sadece hâlâ aynı turdaysak ve bitmemişse timeout uygula
+    if data.bitti or data.tur != tur_no:
+        return
     if len(data.secimler) < 2:
         for uid in (data.baslatan_id, data.rakip_id):
             if uid not in data.secimler:
@@ -170,25 +186,29 @@ async def _tur_baslat(data: DuelloData, kanal):
 
 
 async def _tur_hesapla(data: DuelloData, kanal):
+    if data.bitti:
+        return
+
     b_sec  = data.secimler.get(data.baslatan_id)
     r_sec  = data.secimler.get(data.rakip_id)
     b_lbl  = next(k for k,v in SECENEKLER.items() if v == b_sec)
     r_lbl  = next(k for k,v in SECENEKLER.items() if v == r_sec)
-    b_isim = (kanal.guild.get_member(data.baslatan_id) or type("x", (), {"display_name":"Oyuncu 1"})()).display_name
-    r_isim = (kanal.guild.get_member(data.rakip_id)    or type("x", (), {"display_name":"Oyuncu 2"})()).display_name
+
+    def isim(uid):
+        m = kanal.guild.get_member(uid)
+        return m.display_name if m else "Oyuncu"
+
+    b_isim = isim(data.baslatan_id)
+    r_isim = isim(data.rakip_id)
 
     if (b_sec, r_sec) in KAZANAN_MAP:
-        tur_kazanan = data.baslatan_id
+        data.skorlar[data.baslatan_id] += 1
         sonuc = f"{OK} **{b_isim}** bu turu kazandı!"
     elif (r_sec, b_sec) in KAZANAN_MAP:
-        tur_kazanan = data.rakip_id
+        data.skorlar[data.rakip_id] += 1
         sonuc = f"{OK} **{r_isim}** bu turu kazandı!"
     else:
-        tur_kazanan = None
         sonuc = "🤝 Bu tur **berabere**!"
-
-    if tur_kazanan:
-        data.skorlar[tur_kazanan] += 1
 
     embed = discord.Embed(
         title=f"Tur {data.tur} Sonucu",
@@ -202,18 +222,21 @@ async def _tur_hesapla(data: DuelloData, kanal):
     )
     await kanal.send(embed=embed)
 
-    data.tur += 1
     b_s = data.skorlar[data.baslatan_id]
     r_s = data.skorlar[data.rakip_id]
 
+    # Kazanan belli mi?
     if b_s == 2:
         await _duello_bitis(data, data.baslatan_id, kanal)
     elif r_s == 2:
         await _duello_bitis(data, data.rakip_id, kanal)
-    elif data.tur > 3:
+    elif data.tur >= 3:
+        # 3 tur bitti
         if b_s == r_s:
             await database.add_coins(data.baslatan_id, b_isim, data.bahis)
             await database.add_coins(data.rakip_id,    r_isim, data.bahis)
+            data.bitti = True
+            aktif_duellolar.pop(data.mesaj.id, None)
             await kanal.send(embed=discord.Embed(
                 title="🤝 Düello Berabere!",
                 description=f"Herkes **{data.bahis:,}** {M2B} iade aldı.",
@@ -224,18 +247,24 @@ async def _tur_hesapla(data: DuelloData, kanal):
         else:
             await _duello_bitis(data, data.rakip_id, kanal)
     else:
+        data.tur += 1
         await asyncio.sleep(2)
         await _tur_baslat(data, kanal)
 
 
 async def _duello_bitis(data: DuelloData, kazanan_id: int, kanal, sebep: str = None):
+    if data.bitti:
+        return
+    data.bitti = True
+    aktif_duellolar.pop(data.mesaj.id, None)
+
     kazanan  = kanal.guild.get_member(kazanan_id)
     k_isim   = kazanan.display_name if kazanan else "???"
     pot      = data.bahis * 2
     yeni_bak = await database.add_coins(kazanan_id, k_isim, pot)
 
     embed = discord.Embed(
-        title=f"🏆 Düello Bitti!",
+        title="🏆 Düello Bitti!",
         description=(
             f"{OK} Kazanan: **{kazanan.mention if kazanan else k_isim}**\n"
             f"{COIN_ANIM} Kazanılan: **{pot:,}** {M2B}\n"
@@ -245,7 +274,7 @@ async def _duello_bitis(data: DuelloData, kazanan_id: int, kanal, sebep: str = N
         color=0xFFD700,
     )
     await kanal.send(embed=embed)
-    aktif_duellolar.pop(data.mesaj.id, None)
+    log.info(f"Düello bitti: {k_isim} → +{pot} coin")
 
 
 class MiniOyunCog(commands.Cog):
@@ -253,7 +282,10 @@ class MiniOyunCog(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="düello", description="Başka bir oyuncuyla coin bahisli düello yap!")
-    @app_commands.describe(rakip="Düello yapmak istediğin kullanıcı", bahis="Kaç M2B Coin ile gireceksin?")
+    @app_commands.describe(
+        rakip="Düello yapmak istediğin kullanıcı",
+        bahis="Kaç M2B Coin ile gireceksin?"
+    )
     async def duello(self, interaction: discord.Interaction, rakip: discord.Member, bahis: int):
         await interaction.response.defer()
 
@@ -286,7 +318,7 @@ class MiniOyunCog(commands.Cog):
             ),
             color=0xFF6B35,
         )
-        mesaj_obj = await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed)
         mesaj_obj = await interaction.original_response()
 
         data = DuelloData(interaction.user.id, rakip.id, bahis, mesaj_obj)

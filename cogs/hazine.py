@@ -30,7 +30,7 @@ class HazineCog(commands.Cog):
     async def _dongu(self):
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
-            bekleme = random.randint(HAZINE_MIN_SAAT * 3600, HAZINE_MAX_SAAT * 3600)
+            bekleme = random.randint(int(HAZINE_MIN_SAAT * 3600), int(HAZINE_MAX_SAAT * 3600))
             log.info(f"Sonraki hazine: {bekleme//3600}s {(bekleme%3600)//60}dk sonra")
             await asyncio.sleep(bekleme)
             await self._gonder()

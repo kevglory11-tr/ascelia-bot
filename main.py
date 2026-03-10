@@ -33,10 +33,9 @@ COGS = [
     "cogs.gunluk_giris",
     "cogs.kasa",
     "cogs.coin_market",
-    "cogs.profil",
-    "cogs.boost",
-    "cogs.mini_oyun",
+
     "cogs.admin_coin",
+    "cogs.gunluk_gorev",
 ]
 
 
