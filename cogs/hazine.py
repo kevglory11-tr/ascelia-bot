@@ -41,8 +41,15 @@ class HazineCog(commands.Cog):
             return
         kanal = self.bot.get_channel(HAZINE_KANAL_ID)
         if not kanal:
+            try:
+                kanal = await self.bot.fetch_channel(HAZINE_KANAL_ID)
+            except Exception as e:
+                log.error(f"Kanal fetch edilemedi: {HAZINE_KANAL_ID} — {e}")
+                return
+        if not kanal:
             log.error(f"Kanal bulunamadı: {HAZINE_KANAL_ID}")
             return
+        log.info(f"Hazine kanalı bulundu: #{kanal.name}")
 
         embed = discord.Embed(
             title="🎁 M2Board'ın Gizemli Hazinesi Belirdi!",
