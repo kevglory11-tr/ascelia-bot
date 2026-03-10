@@ -112,7 +112,6 @@ class HazineCog(commands.Cog):
             description=(
                 f"**M2Board gizemli hazinesinden {coin} {M2B} kazandın,\n"
                 f"baya hızlısın vesselam** {user.mention} 🎊\n\n"
-                f"{COIN_ANIM} Yeni bakiyen: **{yeni_bakiye:,} M2B Coin**"
             ),
             color=0xFFD700,
         )
