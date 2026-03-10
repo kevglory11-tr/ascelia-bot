@@ -92,43 +92,6 @@ class AdminCoinCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
         log.info(f"Admin coin sil: {interaction.user} → {kullanici} -{miktar}")
 
-    @app_commands.command(name="transfer", description="Başka bir kullanıcıya M2B Coin gönder.")
-    @app_commands.describe(kullanici="Coin göndereceğin kullanıcı", miktar="Gönderilecek coin miktarı")
-    async def transfer(self, interaction: discord.Interaction,
-                       kullanici: discord.Member, miktar: int):
-        if kullanici.bot:
-            await interaction.response.send_message(f"{FAIL} Bota coin gönderilemez!", ephemeral=True)
-            return
-        if kullanici.id == interaction.user.id:
-            await interaction.response.send_message(f"{FAIL} Kendine coin gönderemezsin!", ephemeral=True)
-            return
-        if miktar < 1:
-            await interaction.response.send_message(f"{FAIL} Minimum transfer 1 Coin!", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-        kayit = await database.ensure_user(interaction.user.id, interaction.user.display_name)
-        if kayit["bakiye"] < miktar:
-            embed = discord.Embed(
-                title=f"{FAIL} Yetersiz Bakiye",
-                description=f"Bakiyen: **{kayit['bakiye']:,}** {M2B}",
-                color=0xE74C3C,
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-
-        view  = TransferOnayView(interaction.user.id, kullanici.id, miktar)
-        embed = discord.Embed(
-            title=f"{M2B} Transfer Onayı",
-            description=(
-                f"👤 Alıcı: {kullanici.mention}\n"
-                f"💸 Miktar: **{miktar:,}** {M2B}\n\n"
-                "Transferi onaylıyor musun?"
-            ),
-            color=0xFFD700,
-        )
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
 
     @app_commands.command(name="admin-tum-coinleri-sil", description="[Admin] Tüm kullanıcıların coinlerini sıfırla.")
     async def admin_tum_coinleri_sil(self, interaction: discord.Interaction):

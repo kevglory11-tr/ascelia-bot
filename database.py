@@ -92,6 +92,12 @@ async def _create_tables() -> None:
                 PRIMARY KEY (mac_id, discord_id)
             );
 
+            CREATE TABLE IF NOT EXISTS market_gunluk (
+                discord_id  BIGINT NOT NULL,
+                tarih       TEXT   NOT NULL,
+                PRIMARY KEY (discord_id, tarih)
+            );
+
             CREATE TABLE IF NOT EXISTS mac_bilgi (
                 mac_id      TEXT PRIMARY KEY,
                 ev          TEXT NOT NULL,

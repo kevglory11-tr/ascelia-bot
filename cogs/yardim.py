@@ -74,7 +74,6 @@ class YardimCog(commands.Cog, name="Yardım"):
                 "> <:dot1:1478383822625181879> `/bakiye @kullanıcı` — Birinin bakiyesine bak\n"
                 "> <:dot1:1478383822625181879> `/sıralama` — En zengin 10 kişi\n"
                 "> <:dot1:1478383822625181879> `/market` — MP Kuponlarını satın al\n"
-                "> <:dot1:1478383822625181879> `/transfer @kullanıcı <miktar>` — Coin gönder"
             ),
             inline=False,
         )
