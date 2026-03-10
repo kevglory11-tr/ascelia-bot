@@ -62,6 +62,35 @@ class YardimCog(commands.Cog, name="Yardım"):
             inline=False,
         )
 
+        # ── Ayırıcı ────────────────────────────────────────────
+        embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", value="\u200b", inline=False)
+
+        # ── M2B Coin Sistemi ───────────────────────────────────
+        embed.add_field(
+            name="<a:coin:1478390167310958734>  M2Board Coin Sistemi",
+            value=(
+                "> <:dot1:1478383822625181879> `/günlük-giriş` — Günlük 1–50 M2B Coin kazan\n"
+                "> <:dot1:1478383822625181879> `/bakiye` — M2B Coin bakiyeni gör\n"
+                "> <:dot1:1478383822625181879> `/bakiye @kullanıcı` — Birinin bakiyesine bak\n"
+                "> <:dot1:1478383822625181879> `/sıralama` — En zengin 10 kişi\n"
+                "> <:dot1:1478383822625181879> `/market` — MP Kuponlarını satın al\n"
+                "> <:dot1:1478383822625181879> `/transfer @kullanıcı <miktar>` — Coin gönder"
+            ),
+            inline=False,
+        )
+
+        # ── Ayırıcı ────────────────────────────────────────────
+        embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", value="\u200b", inline=False)
+
+        # ── Günlük Görev ───────────────────────────────────────
+        embed.add_field(
+            name="📋  Günlük Görev",
+            value=(
+                "> <:dot1:1478383822625181879> `/günlük-görev` — Bugünkü görevini gör\n"
+                "> <:dot1:1478383822625181879> `/günlük-görev-teslim <kanıt>` — Görevi teslim et"
+            ),
+            inline=False,
+        )
 
         if guild and guild.icon:
             embed.set_thumbnail(url=guild.icon.url)
