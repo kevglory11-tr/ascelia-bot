@@ -13,39 +13,31 @@ log       = setup_logger("gunluk_gorev")
 TR_OFFSET = timedelta(hours=3)
 M2B       = "<:m2bcoin:1480481551337783437>"
 OK        = "<a:check:1478394670856933429>"
-FAIL      = "❌"
+FAIL_EMO  = "<a:redx:1478394672012034088>"
+COIN_ANIM = "<a:coin:1478390167310958734>"
+BILDIRIM  = "<a:bildirim:1478390691334979645>"
 
 GOREV_KANAL_ID = int(os.getenv("GOREV_KANAL_ID", "0"))
 
+INSTAGRAM_LINK = "https://www.instagram.com/tmgamesatius"
+
 GOREVLER = [
     {
-        "id":       "facebook",
-        "isim":     "📘 Facebook Görevi",
-        "aciklama": "Facebook grubunda M2Board ile ilgili bir gönderi paylaş ve özgün yorumlar yaz.",
-        "odul":     50,
-    },
-    {
-        "id":       "turkmmo",
-        "isim":     "🎮 Turkmmo Görevi",
-        "aciklama": "Turkmmo'da M2Board Story'si paylaş.",
-        "odul":     50,
-    },
-    {
         "id":       "instagram_yorum",
-        "isim":     "📸 Instagram — Son Gönderi Yorum",
-        "aciklama": "Instagram sayfamızdaki son gönderiye yorum at.",
+        "isim":     "📸 Instagram — Profil Gönderi Yorum",
+        "aciklama": f"Instagram sayfamızdaki herhangi bir gönderiye yorum at.\n🔗 {INSTAGRAM_LINK}",
         "odul":     50,
     },
     {
         "id":       "instagram_sponsorlu_yorum",
         "isim":     "📸 Instagram — Sponsorlu Yorum",
-        "aciklama": "Instagram sayfamızdaki sponsorlu gönderiye yorum at.",
+        "aciklama": f"Instagram sayfamızdaki sponsorlu gönderiye yorum at.\n🔗 {INSTAGRAM_LINK}",
         "odul":     50,
     },
     {
         "id":       "instagram_hikaye",
-        "isim":     "📸 Instagram — Hikaye Paylaşım",
-        "aciklama": "Instagram sayfamızdaki sponsorlu gönderiyi hikayende paylaş.",
+        "isim":     "📸 Instagram — Hikaye Etiket",
+        "aciklama": f"Instagram hikayende M2Board'ı etiketleyip oyun içi görselini paylaş.\n🔗 {INSTAGRAM_LINK}",
         "odul":     50,
     },
 ]
@@ -59,12 +51,78 @@ def _gorev_sec(discord_id: int, tarih: str) -> dict:
     return GOREVLER[seed]
 
 
+class RedSebebiModal(discord.ui.Modal, title="Reddetme Sebebi"):
+    sebep = discord.ui.TextInput(
+        label="Sebep",
+        placeholder="Görevi neden reddediyorsunuz?",
+        style=discord.TextStyle.paragraph,
+        min_length=5,
+        max_length=300,
+    )
+
+    def __init__(self, discord_id: int, gorev: dict, bildirim_kanal_id: int, onay_mesaj: discord.Message):
+        super().__init__()
+        self.discord_id        = discord_id
+        self.gorev             = gorev
+        self.bildirim_kanal_id = bildirim_kanal_id
+        self.onay_mesaj        = onay_mesaj
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
+        # Embed güncelle
+        embed       = self.onay_mesaj.embeds[0]
+        embed.color = 0xE74C3C
+        embed.set_footer(text=f"❌ Reddeden: {interaction.user.display_name} | Sebep: {self.sebep.value}")
+
+        # Tüm butonları devre dışı bırak
+        view = discord.ui.View()
+        await self.onay_mesaj.edit(embed=embed, view=view)
+
+        uye = interaction.guild.get_member(self.discord_id)
+
+        # Kanala bildirim
+        try:
+            kanal = interaction.guild.get_channel(self.bildirim_kanal_id)
+            if kanal and uye:
+                bildirim = discord.Embed(
+                    title=f"{FAIL_EMO} Görevin Reddedildi",
+                    description=(
+                        f"**{self.gorev['isim']}** görevi onaylanmadı.\n\n"
+                        f"📝 **Sebep:** {self.sebep.value}\n\n"
+                        "Görevi eksiksiz tamamlayıp tekrar dene."
+                    ),
+                    color=0xE74C3C,
+                )
+                await kanal.send(content=uye.mention, embed=bildirim)
+        except Exception as e:
+            log.error(f"Kanal bildirimi gönderilemedi: {e}")
+
+        # DM bildirim
+        try:
+            if uye:
+                dm_embed = discord.Embed(
+                    title=f"{FAIL_EMO} Görevin Reddedildi — M2Board",
+                    description=(
+                        f"**{self.gorev['isim']}** görevi onaylanmadı.\n\n"
+                        f"📝 **Sebep:** {self.sebep.value}\n\n"
+                        "Görevi eksiksiz tamamlayıp `/günlük-görev-teslim` ile tekrar gönder."
+                    ),
+                    color=0xE74C3C,
+                )
+                await uye.send(embed=dm_embed)
+        except Exception:
+            pass  # DM kapalıysa sessiz geç
+
+        log.info(f"Görev reddedildi: discord_id={self.discord_id} → {self.gorev['id']} | Sebep: {self.sebep.value}")
+
+
 class GorevOnayView(discord.ui.View):
     def __init__(self, discord_id: int, gorev: dict, bildirim_kanal_id: int):
         super().__init__(timeout=None)
-        self.discord_id         = discord_id
-        self.gorev              = gorev
-        self.bildirim_kanal_id  = bildirim_kanal_id
+        self.discord_id        = discord_id
+        self.gorev             = gorev
+        self.bildirim_kanal_id = bildirim_kanal_id
 
     async def _yetkili_mi(self, interaction: discord.Interaction) -> bool:
         if interaction.user.guild_permissions.administrator:
@@ -90,30 +148,48 @@ class GorevOnayView(discord.ui.View):
                 self.discord_id, self.gorev["id"], _bugun_tr(),
             )
 
+        # Embed güncelle
         for item in self.children:
             item.disabled = True
-        embed        = interaction.message.embeds[0]
-        embed.color  = 0x2ECC71
+        embed       = interaction.message.embeds[0]
+        embed.color = 0x2ECC71
         embed.set_footer(text=f"✅ Onaylayan: {interaction.user.display_name}")
         await interaction.message.edit(embed=embed, view=self)
 
-        # Kullanıcıya bildirim kanalında mention
+        # Kanala bildirim
         try:
             kanal = interaction.guild.get_channel(self.bildirim_kanal_id)
-            if kanal:
+            if kanal and uye:
                 bildirim = discord.Embed(
                     title=f"{OK} Görevin Onaylandı!",
                     description=(
-                        f"**{self.gorev['isim']}** görevi onaylandı! 🎉\n\n"
-                        f"{M2B} **+{self.gorev['odul']} M2B Coin** hesabına eklendi!\n"
-                        f"💰 Yeni bakiyen: **{yeni:,} M2B Coin**\n\n"
+                        f"{BILDIRIM} **{self.gorev['isim']}** görevi onaylandı! 🎉\n\n"
+                        f"{COIN_ANIM} **+{self.gorev['odul']} M2B Coin** hesabına eklendi!\n"
+                        f"{M2B} Yeni bakiyen: **{yeni:,} M2B Coin**\n\n"
                         f"`/bakiye` yazarak kontrol edebilirsin."
                     ),
                     color=0x2ECC71,
                 )
-                await kanal.send(content=uye.mention if uye else "", embed=bildirim)
+                await kanal.send(content=uye.mention, embed=bildirim)
         except Exception as e:
-            log.error(f"Bildirim gönderilemedi: {e}")
+            log.error(f"Kanal bildirimi gönderilemedi: {e}")
+
+        # DM bildirim
+        try:
+            if uye:
+                dm_embed = discord.Embed(
+                    title=f"{OK} Görevin Onaylandı! — M2Board",
+                    description=(
+                        f"{BILDIRIM} **{self.gorev['isim']}** görevi onaylandı! 🎉\n\n"
+                        f"{COIN_ANIM} **+{self.gorev['odul']} M2B Coin** hesabına eklendi!\n"
+                        f"{M2B} Yeni bakiyen: **{yeni:,} M2B Coin**\n\n"
+                        f"M2Board sunucusunda `/bakiye` yazarak kontrol edebilirsin."
+                    ),
+                    color=0x2ECC71,
+                )
+                await uye.send(embed=dm_embed)
+        except Exception:
+            pass  # DM kapalıysa sessiz geç
 
         log.info(f"Görev onaylandı: {u_isim} → {self.gorev['id']} +{self.gorev['odul']} coin")
 
@@ -122,31 +198,92 @@ class GorevOnayView(discord.ui.View):
         if not await self._yetkili_mi(interaction):
             await interaction.response.send_message("Yetkin yok!", ephemeral=True)
             return
+        # Modal aç — sebep zorunlu
+        await interaction.response.send_modal(
+            RedSebebiModal(self.discord_id, self.gorev, self.bildirim_kanal_id, interaction.message)
+        )
 
-        await interaction.response.defer()
 
-        for item in self.children:
-            item.disabled = True
-        embed       = interaction.message.embeds[0]
-        embed.color = 0xE74C3C
-        embed.set_footer(text=f"❌ Reddeden: {interaction.user.display_name}")
-        await interaction.message.edit(embed=embed, view=self)
+class GorevTeslimModal(discord.ui.Modal, title="Görev Teslimi"):
+    oyun_hesap = discord.ui.TextInput(
+        label="Oyun Hesap Adın (Nick)",
+        placeholder="Örn: Warrior123",
+        min_length=2, max_length=50,
+    )
+    karakter_adi = discord.ui.TextInput(
+        label="Karakter Adın",
+        placeholder="Örn: DarkKnight",
+        min_length=2, max_length=50,
+    )
+    instagram_nick = discord.ui.TextInput(
+        label="Instagram Kullanıcı Adın (@olmadan)",
+        placeholder="Örn: ali.metin2",
+        min_length=2, max_length=50,
+    )
+    kanit = discord.ui.TextInput(
+        label="Gyazo Kanıt Linki",
+        placeholder="https://gyazo.com/...",
+        min_length=10, max_length=200,
+    )
+
+    def __init__(self, gorev: dict, discord_id: int, kanal_id: int):
+        super().__init__()
+        self.gorev      = gorev
+        self.discord_id = discord_id
+        self.kanal_id   = kanal_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        bugun = _bugun_tr()
+
+        async with database.pool.acquire() as conn:
+            tamamlandi = await conn.fetchval(
+                "SELECT 1 FROM gorev_log WHERE discord_id=$1 AND gorev_id=$2 AND tarih=$3",
+                interaction.user.id, self.gorev["id"], bugun,
+            )
+
+        if tamamlandi:
+            await interaction.followup.send(
+                f"{OK} Bugünkü görevini zaten tamamladın!", ephemeral=True
+            )
+            return
+
+        if not GOREV_KANAL_ID:
+            await interaction.followup.send("❌ `GOREV_KANAL_ID` ayarlanmamış!", ephemeral=True)
+            return
 
         try:
-            uye   = interaction.guild.get_member(self.discord_id)
-            kanal = interaction.guild.get_channel(self.bildirim_kanal_id)
-            if kanal and uye:
-                bildirim = discord.Embed(
-                    title="❌ Görevin Reddedildi",
-                    description=(
-                        f"**{self.gorev['isim']}** görevi onaylanmadı.\n\n"
-                        "Lütfen görevi eksiksiz tamamladığından emin ol ve tekrar dene."
-                    ),
-                    color=0xE74C3C,
-                )
-                await kanal.send(content=uye.mention, embed=bildirim)
-        except Exception as e:
-            log.error(f"Red bildirimi gönderilemedi: {e}")
+            admin_kanal = interaction.client.get_channel(GOREV_KANAL_ID) or await interaction.client.fetch_channel(GOREV_KANAL_ID)
+        except Exception:
+            await interaction.followup.send("❌ Admin kanalı bulunamadı.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title=f"{BILDIRIM} Görev Teslimi — Onay Bekliyor",
+            color=0xFFD700,
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        embed.add_field(
+            name="👤 Discord",
+            value=f"{interaction.user.mention}\n`ID: {interaction.user.id}`",
+            inline=True,
+        )
+        embed.add_field(name="🎮 Oyun Hesap Adı",  value=self.oyun_hesap.value,    inline=True)
+        embed.add_field(name="⚔️ Karakter Adı",    value=self.karakter_adi.value,  inline=True)
+        embed.add_field(name="📷 Instagram Nick",   value=f"@{self.instagram_nick.value}", inline=True)
+        embed.add_field(name="📋 Görev",            value=self.gorev["isim"],       inline=False)
+        embed.add_field(name="🎁 Ödül",             value=f"**{self.gorev['odul']}** {M2B}", inline=True)
+        embed.add_field(name="📎 Kanıt",            value=self.kanit.value,         inline=False)
+        embed.set_footer(text=f"Tarih: {bugun}")
+
+        view = GorevOnayView(interaction.user.id, self.gorev, self.kanal_id)
+        await admin_kanal.send(embed=embed, view=view)
+
+        await interaction.followup.send(
+            f"{OK} Görevin teslim edildi! Admin onayından sonra **{self.gorev['odul']}** {M2B} hesabına eklenecek.",
+            ephemeral=True,
+        )
+        log.info(f"Görev teslim (modal): {interaction.user} → {self.gorev['id']}")
 
 
 class GunlukGorevCog(commands.Cog):
@@ -168,30 +305,30 @@ class GunlukGorevCog(commands.Cog):
                 )
 
             embed = discord.Embed(
-                title="📋 Günlük Görev",
+                title=f"{BILDIRIM} Günlük Görev",
                 color=0x2ECC71 if tamamlandi else 0xFFD700,
             )
             embed.set_thumbnail(url=interaction.user.display_avatar.url)
             embed.add_field(name=gorev["isim"], value=gorev["aciklama"], inline=False)
-            embed.add_field(name="🎁 Ödül",   value=f"**{gorev['odul']}** {M2B}", inline=True)
+            embed.add_field(name="🎁 Ödül",    value=f"**{gorev['odul']}** {M2B}", inline=True)
             embed.add_field(
                 name="📌 Durum",
                 value=f"{OK} **Tamamlandı!**" if tamamlandi else "⏳ Bekliyor",
                 inline=True,
             )
-
-            if tamamlandi:
-                embed.set_footer(text="Yarın yeni bir görev gelecek!")
-            else:
-                embed.add_field(
-                name="📌 Önemli Not",
+            embed.add_field(
+                name="⚠️ Önemli Not",
                 value=(
                     "Görsel kanıtlarını **[Gyazo](https://gyazo.com)** ile gönder!\n"
                     "Gyazo dışında gönderilen kanıtlar **kabul edilmeyecektir.**"
                 ),
                 inline=False,
             )
-            embed.set_footer(text="Görevi tamamlayınca /günlük-görev-teslim kullan!")
+
+            if tamamlandi:
+                embed.set_footer(text="Yarın yeni bir görev gelecek!")
+            else:
+                embed.set_footer(text="Görevi tamamlayınca /günlük-görev-teslim kullan!")
 
             await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -200,12 +337,7 @@ class GunlukGorevCog(commands.Cog):
             await interaction.followup.send("❌ Bir hata oluştu.", ephemeral=True)
 
     @app_commands.command(name="günlük-görev-teslim", description="Tamamladığın görevi teslim et!")
-    @app_commands.describe(
-        oyun_ici_isim="Oyun içindeki karakterin adı",
-        kanit="Gyazo ile aldığın ekran görüntüsü linki (https://gyazo.com)"
-    )
-    async def gunluk_gorev_teslim(self, interaction: discord.Interaction, oyun_ici_isim: str, kanit: str):
-        await interaction.response.defer(ephemeral=True)
+    async def gunluk_gorev_teslim(self, interaction: discord.Interaction):
         try:
             await database.ensure_user(interaction.user.id, interaction.user.display_name)
             bugun = _bugun_tr()
@@ -218,53 +350,19 @@ class GunlukGorevCog(commands.Cog):
                 )
 
             if tamamlandi:
-                await interaction.followup.send(
+                await interaction.response.send_message(
                     f"{OK} Bugünkü görevini zaten tamamladın! Yarın tekrar gel.",
                     ephemeral=True,
                 )
                 return
 
-            if not GOREV_KANAL_ID:
-                await interaction.followup.send(
-                    "❌ `GOREV_KANAL_ID` Railway'de ayarlanmamış!", ephemeral=True
-                )
-                return
-
-            admin_kanal = self.bot.get_channel(GOREV_KANAL_ID)
-            if not admin_kanal:
-                admin_kanal = await self.bot.fetch_channel(GOREV_KANAL_ID)
-            if not admin_kanal:
-                await interaction.followup.send("❌ Admin kanalı bulunamadı.", ephemeral=True)
-                return
-
-            embed = discord.Embed(
-                title="📬 Görev Teslimi — Onay Bekliyor",
-                color=0xFFD700,
+            await interaction.response.send_modal(
+                GorevTeslimModal(gorev, interaction.user.id, interaction.channel_id)
             )
-            embed.set_thumbnail(url=interaction.user.display_avatar.url)
-            embed.add_field(
-                name="👤 Kullanıcı",
-                value=f"{interaction.user.mention}\n`ID: {interaction.user.id}`",
-                inline=False,
-            )
-            embed.add_field(name="🎮 Oyun İçi İsim", value=oyun_ici_isim, inline=False)
-            embed.add_field(name="📋 Görev", value=gorev["isim"],              inline=True)
-            embed.add_field(name="🎁 Ödül",  value=f"**{gorev['odul']}** {M2B}", inline=True)
-            embed.add_field(name="📎 Kanıt", value=kanit,                      inline=False)
-            embed.set_footer(text=f"Tarih: {bugun} | Kullanıcı ID: {interaction.user.id}")
-
-            view = GorevOnayView(interaction.user.id, gorev, interaction.channel_id)
-            await admin_kanal.send(embed=embed, view=view)
-
-            await interaction.followup.send(
-                f"{OK} Görevin teslim edildi! Admin onayından sonra **{gorev['odul']}** {M2B} hesabına eklenecek.",
-                ephemeral=True,
-            )
-            log.info(f"Görev teslim: {interaction.user} → {gorev['id']}")
 
         except Exception as e:
             log.error(f"günlük-görev-teslim hatası: {e}", exc_info=True)
-            await interaction.followup.send("❌ Bir hata oluştu.", ephemeral=True)
+            await interaction.response.send_message("❌ Bir hata oluştu.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

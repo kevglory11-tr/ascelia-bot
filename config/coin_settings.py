@@ -3,10 +3,10 @@ import os
 
 # ── Hazine ────────────────────────────────────────────────
 HAZINE_KANAL_ID   = int(os.getenv("HAZINE_KANAL_ID", "0"))
-HAZINE_MIN_SAAT   = 0.01
-HAZINE_MAX_SAAT   = 0.02
+HAZINE_MIN_SAAT   = 2
+HAZINE_MAX_SAAT   = 6
 HAZINE_MIN_COIN   = 1
-HAZINE_MAX_COIN   = 200
+HAZINE_MAX_COIN   = 100
 
 # ── Günlük Giriş ──────────────────────────────────────────
 GUNLUK_MIN_COIN   = 1
