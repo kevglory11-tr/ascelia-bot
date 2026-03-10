@@ -95,6 +95,19 @@ class YardimCog(commands.Cog, name="Yardım"):
         if guild and guild.icon:
             embed.set_thumbnail(url=guild.icon.url)
 
+        # ── Ayırıcı ────────────────────────────────────────────
+        embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", value="\u200b", inline=False)
+
+        # ── Skor Tahmin ────────────────────────────────────────
+        embed.add_field(
+            name="⚽  Maç Tahmini",
+            value=(
+                "> <:dot1:1478383822625181879> `/skor-tahmin` — Yeni maç tahmini oluştur (Admin)\n"
+                "> <:dot1:1478383822625181879> `/sonuclar <maç_id> <skor>` — Sonucu gir (Admin)"
+            ),
+            inline=False,
+        )
+
         embed.set_footer(
             text="Ascelia Bot • AWGames | Bot Owner: Aselica | 🔹 Üye  🔸 Admin",
             icon_url=guild.icon.url if guild and guild.icon else None,
