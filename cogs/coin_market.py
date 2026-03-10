@@ -178,6 +178,12 @@ class CoinMarketCog(commands.Cog):
             kayit  = await database.ensure_user(interaction.user.id, interaction.user.display_name)
             bakiye = kayit["bakiye"]
 
+            async with database.pool.acquire() as conn:
+                bugun_alindi = bool(await conn.fetchval(
+                    "SELECT 1 FROM market_gunluk WHERE discord_id=$1 AND tarih=$2",
+                    interaction.user.id, _bugun_tr()
+                ))
+
             embed = discord.Embed(
                 title=f"{SHOP} M2B Mağazası",
                 color=0xFFD700,
@@ -202,14 +208,6 @@ class CoinMarketCog(commands.Cog):
                 embed.set_footer(text="⛔ Bugünkü alım hakkın doldu · Yarın 00:00'da sıfırlanır")
             else:
                 embed.set_footer(text="🎫 Günde 1 alım hakkın var · Kuponu aldıktan sonra ticket aç")
-            embed.set_footer(text="🎫 Kuponu aldıktan sonra ticket aç · /bakiye ile bakiyeni gör")
-
-            async with database.pool.acquire() as conn:
-                bugun_alindi = bool(await conn.fetchval(
-                    "SELECT 1 FROM market_gunluk WHERE discord_id=$1 AND tarih=$2",
-                    interaction.user.id, _bugun_tr()
-                ))
-
             view = MarketView(interaction.user.id, bakiye, bugun_alindi)
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
