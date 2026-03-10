@@ -82,6 +82,27 @@ async def _create_tables() -> None:
                 tarih       TEXT   NOT NULL,
                 PRIMARY KEY (discord_id, gorev_id, tarih)
             );
+
+            CREATE TABLE IF NOT EXISTS mac_tahmin (
+                mac_id      TEXT    NOT NULL,
+                discord_id  BIGINT  NOT NULL,
+                skor        TEXT    NOT NULL,
+                isim        TEXT    NOT NULL,
+                zaman       TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (mac_id, discord_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS mac_bilgi (
+                mac_id      TEXT PRIMARY KEY,
+                ev          TEXT NOT NULL,
+                ev_logo     TEXT,
+                dep         TEXT NOT NULL,
+                dep_logo    TEXT,
+                mac_zamani  TEXT NOT NULL,
+                kanal_id    BIGINT NOT NULL,
+                mesaj_id    BIGINT,
+                kapali      BOOLEAN DEFAULT FALSE
+            );
         """)
     log.info("✅ Tablolar hazır.")
 
