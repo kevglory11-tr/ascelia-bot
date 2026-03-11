@@ -23,17 +23,24 @@ SANDIK_ACIK   = os.path.join(os.path.dirname(__file__), "..", "assets", "sandik_
 
 class HazineCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
-        self.bot         = bot
-        self.aktif_mesaj = None
+        self.bot              = bot
+        self.aktif_mesaj      = None
+        self.kalan_sure       = 0       # asyncio.sleep'e kalan saniye
+        self.indirilen_toplam = 0       # toplam indirim (max 1800sn = 30dk)
+        self.unique_yazanlar  = set()   # mevcut eşikte yazan farklı kullanıcılar
         self.bot.loop.create_task(self._dongu())
 
     async def _dongu(self):
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
             try:
-                bekleme = random.randint(int(HAZINE_MIN_SAAT * 3600), int(HAZINE_MAX_SAAT * 3600))
-                log.info(f"Sonraki hazine: {bekleme//3600}s {(bekleme%3600)//60}dk sonra")
-                await asyncio.sleep(bekleme)
+                self.kalan_sure       = random.randint(int(HAZINE_MIN_SAAT * 3600), int(HAZINE_MAX_SAAT * 3600))
+                self.indirilen_toplam = 0
+                self.unique_yazanlar  = set()
+                log.info(f"Sonraki hazine: {self.kalan_sure//3600}s {(self.kalan_sure%3600)//60}dk sonra")
+                while self.kalan_sure > 0:
+                    await asyncio.sleep(1)
+                    self.kalan_sure -= 1
                 await self._gonder()
             except asyncio.CancelledError:
                 break
@@ -142,6 +149,31 @@ class HazineCog(commands.Cog):
             await mesaj.channel.send(embed=embed)
 
         log.info(f"Hazine: {user} → {coin} coin")
+
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or self.kalan_sure <= 0:
+            return
+        if self.indirilen_toplam >= 1800:  # 30 dakika max
+            return
+
+        self.unique_yazanlar.add(message.author.id)
+
+        # Her 5 farklı kullanıcıda bir indirim yap
+        if len(self.unique_yazanlar) >= 5:
+            indirim = random.randint(300, 600)  # 5-10 dakika
+            kalan_indirilebilir = 1800 - self.indirilen_toplam
+            indirim = min(indirim, kalan_indirilebilir, self.kalan_sure - 10)
+            if indirim > 0:
+                self.kalan_sure       -= indirim
+                self.indirilen_toplam += indirim
+                self.unique_yazanlar  = set()  # sayacı sıfırla
+                log.info(
+                    f"Hazine {indirim//60}dk erken gelecek! "
+                    f"(Toplam indirim: {self.indirilen_toplam//60}dk, "
+                    f"Kalan: {self.kalan_sure//3600}s {(self.kalan_sure%3600)//60}dk)"
+                )
 
 
 async def setup(bot: commands.Bot):
