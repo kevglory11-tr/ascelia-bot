@@ -30,10 +30,16 @@ class HazineCog(commands.Cog):
     async def _dongu(self):
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
-            bekleme = random.randint(int(HAZINE_MIN_SAAT * 3600), int(HAZINE_MAX_SAAT * 3600))
-            log.info(f"Sonraki hazine: {bekleme//3600}s {(bekleme%3600)//60}dk sonra")
-            await asyncio.sleep(bekleme)
-            await self._gonder()
+            try:
+                bekleme = random.randint(int(HAZINE_MIN_SAAT * 3600), int(HAZINE_MAX_SAAT * 3600))
+                log.info(f"Sonraki hazine: {bekleme//3600}s {(bekleme%3600)//60}dk sonra")
+                await asyncio.sleep(bekleme)
+                await self._gonder()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Hazine döngüsü hatası, 60sn sonra tekrar deneniyor: {e}", exc_info=True)
+                await asyncio.sleep(60)
 
     async def _gonder(self):
         if not HAZINE_KANAL_ID:
@@ -62,12 +68,21 @@ class HazineCog(commands.Cog):
         )
         embed.set_footer(text="M2Board Coin Sistemi • Hazineyi ilk açan kazanır!")
 
+        for deneme in range(3):
+            try:
+                with open(SANDIK_KAPALI, "rb") as f:
+                    dosya = discord.File(f, filename="sandik_kapali.jpg")
+                    embed.set_image(url="attachment://sandik_kapali.jpg")
+                    mesaj = await kanal.send(file=dosya, embed=embed)
+                break  # başarılı, döngüden çık
+            except discord.errors.DiscordServerError as e:
+                log.warning(f"Discord 503, {deneme+1}. deneme: {e}")
+                if deneme < 2:
+                    await asyncio.sleep(10)
+                else:
+                    log.error("3 denemede de gönderilemedi, atlanıyor.")
+                    return
         try:
-            with open(SANDIK_KAPALI, "rb") as f:
-                dosya = discord.File(f, filename="sandik_kapali.jpg")
-                embed.set_image(url="attachment://sandik_kapali.jpg")
-                mesaj = await kanal.send(file=dosya, embed=embed)
-
             await mesaj.add_reaction(HAZINE_EMOJI)
             self.aktif_mesaj = mesaj
 
