@@ -17,7 +17,7 @@ FAIL_EMO  = "<a:no:1478524993670479942>"
 COIN_ANIM = "<a:coin:1478390167310958734>"
 BILDIRIM  = "<a:bildirim:1478390691334979645>"
 ONERI     = "<a:onerino:1478614338909769799>"
-INSTAGRAM = "<a:instagram:1478635152614625281>"
+INSTAGRAM = "<a:ınstagram:1478635152614625281>"
 
 GOREV_KANAL_ID = int(os.getenv("GOREV_KANAL_ID", "0"))
 
@@ -120,45 +120,52 @@ class GorevOnayView(discord.ui.View):
         if not await self._yetkili_mi(interaction):
             await interaction.response.send_message("Yetkin yok!", ephemeral=True)
             return
-
-        await interaction.response.defer()
-
-        uye    = interaction.guild.get_member(self.discord_id)
-        u_isim = uye.display_name if uye else "Kullanıcı"
-        yeni   = await database.add_coins(self.discord_id, u_isim, self.gorev["odul"])
-
-        async with database.pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO gorev_log (discord_id, gorev_id, tarih) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-                self.discord_id, self.gorev["id"], _bugun_tr(),
-            )
-
-        # Embed güncelle
-        for item in self.children:
-            item.disabled = True
-        embed       = interaction.message.embeds[0]
-        embed.color = 0x2ECC71
-        embed.set_footer(text=f"✅ Onaylayan: {interaction.user.display_name}")
-        await interaction.message.edit(embed=embed, view=self)
-
-        # DM bildirim
         try:
-            if uye:
-                dm_embed = discord.Embed(
-                    title=f"{OK} Görevin Onaylandı! — M2Board",
-                    description=(
-                        f"{BILDIRIM} **{self.gorev['isim']}** görevi onaylandı! 🎉\n\n"
-                        f"{COIN_ANIM} **+{self.gorev['odul']} M2B Coin** hesabına eklendi!\n"
-                        f"{M2B} Yeni bakiyen: **{yeni:,} M2B Coin**\n\n"
-                        f"M2Board sunucusunda `/bakiye` yazarak kontrol edebilirsin."
-                    ),
-                    color=0x2ECC71,
-                )
-                await uye.send(embed=dm_embed)
-        except Exception:
-            pass  # DM kapalıysa sessiz geç
+            await interaction.response.defer()
 
-        log.info(f"Görev onaylandı: {u_isim} → {self.gorev['id']} +{self.gorev['odul']} coin")
+            uye    = interaction.guild.get_member(self.discord_id)
+            u_isim = uye.display_name if uye else "Kullanıcı"
+            yeni   = await database.add_coins(self.discord_id, u_isim, self.gorev["odul"])
+
+            async with database.pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO gorev_log (discord_id, gorev_id, tarih) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                    self.discord_id, self.gorev["id"], _bugun_tr(),
+                )
+
+            # Embed güncelle
+            for item in self.children:
+                item.disabled = True
+            embed       = interaction.message.embeds[0]
+            embed.color = 0x2ECC71
+            embed.set_footer(text=f"✅ Onaylayan: {interaction.user.display_name}")
+            await interaction.message.edit(embed=embed, view=self)
+
+            # DM bildirim
+            try:
+                if uye:
+                    dm_embed = discord.Embed(
+                        title=f"{OK} Görevin Onaylandı! — M2Board",
+                        description=(
+                            f"{BILDIRIM} **{self.gorev['isim']}** görevi onaylandı! 🎉\n\n"
+                            f"{COIN_ANIM} **+{self.gorev['odul']} M2B Coin** hesabına eklendi!\n"
+                            f"{M2B} Yeni bakiyen: **{yeni:,} M2B Coin**\n\n"
+                            f"M2Board sunucusunda `/bakiye` yazarak kontrol edebilirsin."
+                        ),
+                        color=0x2ECC71,
+                    )
+                    await uye.send(embed=dm_embed)
+            except Exception:
+                pass  # DM kapalıysa sessiz geç
+
+            log.info(f"Görev onaylandı: {u_isim} → {self.gorev['id']} +{self.gorev['odul']} coin")
+
+        except Exception as e:
+            log.error(f"Onay butonu hatası: {e}", exc_info=True)
+            try:
+                await interaction.followup.send("❌ Onay sırasında hata oluştu, loga bak.", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="Reddet", style=discord.ButtonStyle.danger, emoji="❌")
     async def reddet(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -306,23 +313,9 @@ class GunlukGorevCog(commands.Cog):
     @app_commands.command(name="günlük-görev-teslim", description="Tamamladığın görevi teslim et!")
     async def gunluk_gorev_teslim(self, interaction: discord.Interaction):
         try:
-            await database.ensure_user(interaction.user.id, interaction.user.display_name)
             bugun = _bugun_tr()
             gorev = _gorev_sec(interaction.user.id, bugun)
-
-            async with database.pool.acquire() as conn:
-                tamamlandi = await conn.fetchval(
-                    "SELECT 1 FROM gorev_log WHERE discord_id=$1 AND gorev_id=$2 AND tarih=$3",
-                    interaction.user.id, gorev["id"], bugun,
-                )
-
-            if tamamlandi:
-                await interaction.response.send_message(
-                    f"{OK} Bugünkü görevini zaten tamamladın! Yarın tekrar gel.",
-                    ephemeral=True,
-                )
-                return
-
+            # Modal'ı hemen aç — DB kontrolü on_submit içinde yapılıyor
             await interaction.response.send_modal(
                 GorevTeslimModal(gorev, interaction.user.id, interaction.channel_id)
             )
