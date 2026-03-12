@@ -13,7 +13,10 @@ FRAMES   = 52
 FPS      = 22
 
 def _font(size):
+    # Önce repo içindeki font — Railway dahil her ortamda çalışır
+    _repo_font = os.path.join(os.path.dirname(__file__), "..", "assets", "font.ttf")
     for yol in [
+        _repo_font,
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
