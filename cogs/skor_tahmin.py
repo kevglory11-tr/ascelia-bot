@@ -60,10 +60,18 @@ class TahminButon(discord.ui.Button):
                 "SELECT skor FROM mac_tahmin WHERE mac_id=$1 AND discord_id=$2",
                 self.mac_id, interaction.user.id
             )
+            if onceki:
+                secim_text = {"ev": mac["ev"], "beraberlik": "Beraberlik", "dep": mac["dep"]}.get(onceki, onceki)
+                await interaction.response.send_message(
+                    f"❌ Zaten tahmin yaptın: **{secim_text}**\nTahminler değiştirilemez!",
+                    ephemeral=True
+                )
+                return
+
             await conn.execute(
                 """INSERT INTO mac_tahmin (mac_id, discord_id, skor, isim)
                    VALUES ($1,$2,$3,$4)
-                   ON CONFLICT (mac_id, discord_id) DO UPDATE SET skor=$3, isim=$4, zaman=NOW()""",
+                   ON CONFLICT (mac_id, discord_id) DO NOTHING""",
                 self.mac_id, interaction.user.id, self.deger, interaction.user.display_name
             )
             tahmin_sayisi = await conn.fetchval(
@@ -78,16 +86,12 @@ class TahminButon(discord.ui.Button):
 
         secim_text = {"ev": mac["ev"], "beraberlik": "Beraberlik", "dep": mac["dep"]}.get(self.deger, self.deger)
         odul = mac["odul"] if "odul" in mac.keys() else "100 MP Kuponu"
-
-        if onceki:
-            eski_text = {"ev": mac["ev"], "beraberlik": "Beraberlik", "dep": mac["dep"]}.get(onceki, onceki)
-            msg = f"✅ Tahminin güncellendi!\n~~{eski_text}~~ → **{secim_text}**"
-        else:
-            msg = (
-                f"✅ Tahminin kaydedildi!\n"
-                f"🏆 Seçimin: **{secim_text}**\n\n"
-                f"🎟️ İlk **10 doğru tahmin** → **{odul}** kazanır!"
-            )
+        msg = (
+            f"✅ Tahminin kaydedildi!\n"
+            f"🏆 Seçimin: **{secim_text}**\n\n"
+            f"🎟️ İlk **10 doğru tahmin** → **{odul}** kazanır!\n"
+            f"⚠️ Tahminler **değiştirilemez!**"
+        )
         await interaction.response.send_message(msg, ephemeral=True)
 
 
