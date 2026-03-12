@@ -37,6 +37,7 @@ COGS = [
     "cogs.admin_coin",
     "cogs.gunluk_gorev",
     "cogs.skor_tahmin",
+    "cogs.atam",
 ]
 
 
