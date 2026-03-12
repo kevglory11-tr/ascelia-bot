@@ -47,15 +47,28 @@ class GunlukGirisCog(commands.Cog):
                 await interaction.followup.send(embed=embed)
                 return
 
-            coin        = random.randint(GUNLUK_MIN_COIN, GUNLUK_MAX_COIN)
-            yeni_bakiye = await database.add_coins(interaction.user.id, interaction.user.display_name, coin)
-            await database.set_son_giris(interaction.user.id, bugun)
+            coin      = random.randint(GUNLUK_MIN_COIN, GUNLUK_MAX_COIN)
+            yeni_seri = await database.set_son_giris(interaction.user.id, bugun)
+
+            # Seri bonusu
+            bonus     = 0
+            seri_mesaj = ""
+            if yeni_seri >= 3:
+                bonus = 10
+                seri_mesaj = f"\n🔥 **{yeni_seri} günlük seri bonusu:** +{bonus} M2B Coin!"
+
+            toplam      = coin + bonus
+            yeni_bakiye = await database.add_coins(
+                interaction.user.id, interaction.user.display_name, toplam,
+                aciklama=f"Günlük giriş (seri: {yeni_seri})"
+            )
 
             embed = discord.Embed(
                 title=f"{OK} Günlük Giriş Ödülü!",
                 description=(
-                    f"{COIN_ANIM} {interaction.user.mention} **{coin} M2B Coin** kazandı!\n\n"
+                    f"{COIN_ANIM} {interaction.user.mention} **{coin} M2B Coin** kazandı!{seri_mesaj}\n\n"
                     f"{M2B} Yeni bakiyen: **{yeni_bakiye:,} M2B Coin**\n"
+                    f"🔥 Giriş seriniz: **{yeni_seri} gün**\n"
                     f"📅 Yarın tekrar gel!"
                 ),
                 color=0x2ECC71,
@@ -63,7 +76,7 @@ class GunlukGirisCog(commands.Cog):
             embed.set_thumbnail(url=interaction.user.display_avatar.url)
             embed.set_footer(text="/bakiye · /market")
             await interaction.followup.send(embed=embed)
-            log.info(f"Günlük: {interaction.user} → +{coin} coin")
+            log.info(f"Günlük: {interaction.user} → +{toplam} coin (seri: {yeni_seri})")
 
         except Exception as e:
             log.error(f"günlük-giriş hatası: {e}", exc_info=True)

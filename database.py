@@ -92,6 +92,15 @@ async def _create_tables() -> None:
                 PRIMARY KEY (mac_id, discord_id)
             );
 
+            CREATE TABLE IF NOT EXISTS coin_log (
+                id          BIGSERIAL PRIMARY KEY,
+                discord_id  BIGINT NOT NULL,
+                miktar      BIGINT NOT NULL,
+                tip         TEXT NOT NULL,
+                aciklama    TEXT,
+                zaman       TIMESTAMPTZ DEFAULT NOW()
+            );
+
             CREATE TABLE IF NOT EXISTS market_gunluk (
                 discord_id  BIGINT NOT NULL,
                 tarih       TEXT   NOT NULL,
@@ -126,6 +135,7 @@ async def _migrate() -> None:
         ("boost_seviye",     "INT DEFAULT 0"),
         ("boost_baslangic",  "TIMESTAMPTZ DEFAULT NULL"),
         ("son_mesaj_exp",    "TIMESTAMPTZ DEFAULT NULL"),
+        ("giris_serisi",     "INT DEFAULT 0"),
         ("toplam_kazanilan", "BIGINT DEFAULT 0"),
     ]
     async with pool.acquire() as conn:
@@ -136,6 +146,14 @@ async def _migrate() -> None:
                 )
             except Exception:
                 pass
+
+        # mac_bilgi tablosuna gercek_skor ekle
+        try:
+            await conn.execute(
+                "ALTER TABLE mac_bilgi ADD COLUMN IF NOT EXISTS gercek_skor TEXT DEFAULT NULL"
+            )
+        except Exception:
+            pass
     log.info("✅ Migrasyon tamamlandı.")
 
 
@@ -156,7 +174,7 @@ async def ensure_user(discord_id: int, username: str):
         return await conn.fetchrow("SELECT * FROM coins WHERE discord_id = $1", discord_id)
 
 
-async def add_coins(discord_id: int, username: str, miktar: int) -> int:
+async def add_coins(discord_id: int, username: str, miktar: int, aciklama: str = None) -> int:
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             INSERT INTO coins (discord_id, username, bakiye, toplam_kazanilan)
@@ -167,10 +185,14 @@ async def add_coins(discord_id: int, username: str, miktar: int) -> int:
                     username         = EXCLUDED.username
             RETURNING bakiye
         """, discord_id, username, miktar)
+        await conn.execute(
+            "INSERT INTO coin_log (discord_id, miktar, tip, aciklama) VALUES ($1, $2, 'kazanc', $3)",
+            discord_id, miktar, aciklama
+        )
         return row["bakiye"]
 
 
-async def remove_coins(discord_id: int, miktar: int) -> bool:
+async def remove_coins(discord_id: int, miktar: int, aciklama: str = None) -> bool:
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT bakiye FROM coins WHERE discord_id = $1", discord_id)
         if not row or row["bakiye"] < miktar:
@@ -179,16 +201,35 @@ async def remove_coins(discord_id: int, miktar: int) -> bool:
             "UPDATE coins SET bakiye = bakiye - $2 WHERE discord_id = $1",
             discord_id, miktar
         )
+        await conn.execute(
+            "INSERT INTO coin_log (discord_id, miktar, tip, aciklama) VALUES ($1, $2, 'harcama', $3)",
+            discord_id, miktar, aciklama
+        )
         return True
 
 
-async def set_son_giris(discord_id: int, tarih_str: str) -> None:
-    from datetime import date
-    tarih = date.fromisoformat(tarih_str)
+async def set_son_giris(discord_id: int, tarih_str: str) -> int:
+    """son_giris güncelle, seriyi artır. Yeni seri değerini döndürür."""
+    from datetime import date, timedelta
+    bugun  = date.fromisoformat(tarih_str)
+    dun    = bugun - timedelta(days=1)
     async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE coins SET son_giris = $2 WHERE discord_id = $1", discord_id, tarih
+        kayit = await conn.fetchrow(
+            "SELECT son_giris, giris_serisi FROM coins WHERE discord_id=$1", discord_id
         )
+        son    = kayit["son_giris"] if kayit else None
+        seri   = kayit["giris_serisi"] if kayit else 0
+
+        if son == dun:
+            yeni_seri = seri + 1   # dün girdiyse seri devam
+        else:
+            yeni_seri = 1          # atlama veya ilk giriş
+
+        await conn.execute(
+            "UPDATE coins SET son_giris=$2, giris_serisi=$3 WHERE discord_id=$1",
+            discord_id, bugun, yeni_seri
+        )
+    return yeni_seri
 
 
 async def get_leaderboard(limit: int = 10):

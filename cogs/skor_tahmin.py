@@ -257,7 +257,7 @@ class SkorTahminCog(commands.Cog):
                 await interaction.followup.send("❌ Format: `2-1`", ephemeral=True)
                 return
 
-            await conn.execute("UPDATE mac_bilgi SET kapali=TRUE WHERE mac_id=$1", mac_id)
+            await conn.execute("UPDATE mac_bilgi SET kapali=TRUE, gercek_skor=$2 WHERE mac_id=$1", mac_id, gercek_skor)
             kazananlar    = await conn.fetch(
                 "SELECT * FROM mac_tahmin WHERE mac_id=$1 AND skor=$2 ORDER BY zaman ASC LIMIT 5",
                 mac_id, skor_val
@@ -312,6 +312,48 @@ class SkorTahminCog(commands.Cog):
                     pass
 
         log.info(f"Sonuç: {mac_id} → {gercek_skor} | {len(kazananlar)} kazanan")
+
+
+    @app_commands.command(name="tahmin-sıralaması", description="En başarılı tahmin yapanları gör!")
+    async def tahmin_siralaması(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        async with database.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT
+                    t.discord_id,
+                    t.isim,
+                    COUNT(*) FILTER (WHERE t.skor = b.gercek_skor) AS dogru,
+                    COUNT(*) AS toplam
+                FROM mac_tahmin t
+                JOIN mac_bilgi b ON t.mac_id = b.mac_id
+                WHERE b.kapali = TRUE AND b.gercek_skor IS NOT NULL
+                GROUP BY t.discord_id, t.isim
+                HAVING COUNT(*) > 0
+                ORDER BY dogru DESC, toplam ASC
+                LIMIT 10
+            """)
+
+        if not rows:
+            await interaction.followup.send("Henüz sonuçlanmış maç tahmini yok!", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🏆 Tahmin Sıralaması",
+            description="En başarılı tahmin yapanlar:",
+            color=0xFFD700,
+        )
+
+        madalyalar = ["🥇", "🥈", "🥉"]
+        siralama   = ""
+        for i, row in enumerate(rows):
+            madalya  = madalyalar[i] if i < 3 else f"`{i+1}.`"
+            oran     = f"{row['dogru']}/{row['toplam']}"
+            yuzde    = int(row['dogru'] / row['toplam'] * 100)
+            siralama += f"{madalya} **{row['isim']}** — {oran} doğru (%{yuzde})\n"
+
+        embed.description = siralama
+        embed.set_footer(text="Sonuçlanmış maçlar baz alınır")
+        await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot):

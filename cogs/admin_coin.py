@@ -126,5 +126,56 @@ class TumCoinSilOnayView(discord.ui.View):
         await interaction.response.edit_message(content="❌ İptal edildi.", view=None)
 
 
+    @app_commands.command(name="işlemler", description="[Admin] Kullanıcının coin geçmişini görüntüle.")
+    @app_commands.describe(kullanici="Geçmişi görülecek kullanıcı", adet="Kaç işlem gösterilsin (max 20)")
+    async def islemler(self, interaction: discord.Interaction,
+                       kullanici: discord.Member, adet: int = 10):
+        if not _admin_kontrol(interaction):
+            await interaction.response.send_message(f"{FAIL} Bu komutu kullanma yetkin yok!", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        adet = min(adet, 20)
+
+        async with database.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT miktar, tip, aciklama, zaman
+                   FROM coin_log WHERE discord_id=$1
+                   ORDER BY zaman DESC LIMIT $2""",
+                kullanici.id, adet
+            )
+            bakiye_row = await conn.fetchrow(
+                "SELECT bakiye, toplam_kazanilan, giris_serisi FROM coins WHERE discord_id=$1",
+                kullanici.id
+            )
+
+        if not rows:
+            await interaction.followup.send("Bu kullanıcıya ait işlem kaydı yok.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title=f"📋 Coin Geçmişi — {kullanici.display_name}",
+            color=0x3498DB,
+        )
+        if bakiye_row:
+            embed.add_field(name=f"{M2B} Bakiye",          value=f"{bakiye_row['bakiye']:,} coin",            inline=True)
+            embed.add_field(name="📈 Toplam Kazanılan",    value=f"{bakiye_row['toplam_kazanilan']:,} coin",   inline=True)
+            embed.add_field(name="🔥 Giriş Serisi",        value=f"{bakiye_row['giris_serisi']} gün",         inline=True)
+
+        gecmis = ""
+        from datetime import timezone, timedelta
+        TR = timedelta(hours=3)
+        for r in rows:
+            zaman_tr = (r["zaman"].astimezone(timezone.utc) + TR).strftime("%d.%m %H:%M")
+            isaret   = "+" if r["tip"] == "kazanc" else "-"
+            aciklama = r["aciklama"] or r["tip"]
+            gecmis  += f"`{zaman_tr}` {isaret}{r['miktar']:,} coin — {aciklama}\n"
+
+        embed.add_field(name=f"Son {adet} İşlem", value=gecmis or "—", inline=False)
+        embed.set_thumbnail(url=kullanici.display_avatar.url)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        log.info(f"İşlemler: {interaction.user} → {kullanici}")
+
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(AdminCoinCog(bot))
