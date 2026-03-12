@@ -176,7 +176,7 @@ class SkorTahminCog(commands.Cog):
             await interaction.followup.send("❌ Format: tarih `10.03.2026` saat `20:45`", ephemeral=True)
             return
 
-        mac_id    = f"{ev_takim[:3].upper()}{dep_takim[:3].upper()}{mac_zamani.strftime('%d%m%H%M')}"
+        mac_id    = f"{ev_takim[:3].upper()}{dep_takim[:3].upper()}{mac_zamani.strftime('%d%m%Y%H%M')}"
         zaman_str = mac_zamani.strftime("%d.%m.%Y %H:%M")
 
         async with database.pool.acquire() as conn:
@@ -364,7 +364,7 @@ class SkorTahminCog(commands.Cog):
             return
 
         embed = discord.Embed(title="🏆 Tahmin Sıralaması", description="", color=0xFFD700)
-        madalyalar = ["🥇", "🥈", "🥉"]
+        madalyalar = ["<a:gold:1478525208766709833>", "<a:silver:1478525216069259487>", "<a:bronze:1478525229583302656>"]
         siralama   = ""
         for i, row in enumerate(rows):
             madalya   = madalyalar[i] if i < 3 else f"`{i+1}.`"
