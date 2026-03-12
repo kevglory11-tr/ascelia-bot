@@ -226,7 +226,7 @@ class SkorTahminCog(commands.Cog):
     @app_commands.command(name="sonuclar", description="[Admin] Maç sonucunu gir ve kazananları ilan et.")
     @app_commands.describe(
         mac_id="Maç ID'si",
-        kazanan="Kazanan: 'ev', 'dep' veya 'beraberlik'",
+        kazanan="Kazanan takım adı (örn: Fenerbahçe) veya 'Beraberlik'",
         gercek_skor="Gerçek skor (görüntü için, örn: 2-1)",
     )
     async def sonuclar(self, interaction: discord.Interaction,
@@ -237,19 +237,32 @@ class SkorTahminCog(commands.Cog):
 
         await interaction.response.defer()
 
-        kazanan_deger = kazanan.strip().lower()
-        if kazanan_deger not in ("ev", "dep", "beraberlik"):
-            await interaction.followup.send(
-                "❌ Kazanan şunlardan biri olmalı: `ev`, `dep`, `beraberlik`", ephemeral=True
-            )
-            return
-
         async with database.pool.acquire() as conn:
             mac = await conn.fetchrow("SELECT * FROM mac_bilgi WHERE mac_id=$1", mac_id)
             if not mac:
                 await interaction.followup.send(f"❌ `{mac_id}` bulunamadı!", ephemeral=True)
                 return
 
+        # Girilen takım adını ev/dep/beraberlik değerine çevir
+        kazanan_temiz = kazanan.strip().lower()
+        if kazanan_temiz in ("beraberlik", "berabere", "draw"):
+            kazanan_deger = "beraberlik"
+            kazanan_text  = "Beraberlik"
+        elif kazanan_temiz == mac["ev"].strip().lower():
+            kazanan_deger = "ev"
+            kazanan_text  = mac["ev"]
+        elif kazanan_temiz == mac["dep"].strip().lower():
+            kazanan_deger = "dep"
+            kazanan_text  = mac["dep"]
+        else:
+            await interaction.followup.send(
+                f"❌ Takım adı tanınamadı!\n"
+                f"Geçerli seçenekler: `{mac['ev']}`, `{mac['dep']}`, `Beraberlik`",
+                ephemeral=True
+            )
+            return
+
+        async with database.pool.acquire() as conn:
             await conn.execute(
                 "UPDATE mac_bilgi SET kapali=TRUE, gercek_skor=$2 WHERE mac_id=$1",
                 mac_id, kazanan_deger
@@ -262,8 +275,7 @@ class SkorTahminCog(commands.Cog):
                 "SELECT COUNT(*) FROM mac_tahmin WHERE mac_id=$1", mac_id
             )
 
-        odul         = mac["odul"] if "odul" in mac.keys() else "100 MP Kuponu"
-        kazanan_text = {"ev": mac["ev"], "dep": mac["dep"], "beraberlik": "Beraberlik"}.get(kazanan_deger)
+        odul = mac["odul"] if "odul" in mac.keys() else "100 MP Kuponu"
 
         embed = discord.Embed(
             title=f"{TROPHY} Maç Sonucu",
