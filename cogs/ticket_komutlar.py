@@ -9,7 +9,7 @@ from discord.ext import commands
 import logging
 
 from config.settings import Settings
-from cogs.ticket import acik_ticketlar, destek_ekibi_mi
+from cogs.ticket import acik_ticketlar
 
 log = logging.getLogger("cog.ticket_komutlar")
 
@@ -17,6 +17,12 @@ log = logging.getLogger("cog.ticket_komutlar")
 def ticket_kanal_mi(kanal_id: int) -> bool:
     """Kanalın aktif bir ticket kanalı olup olmadığını kontrol et."""
     return kanal_id in acik_ticketlar
+
+
+def destek_ekibi_mi(interaction: discord.Interaction) -> bool:
+    """Kullanıcının destek rolüne sahip olup olmadığını kontrol et."""
+    settings = Settings()
+    return any(r.id in settings.ticket_support_rol_idleri for r in interaction.user.roles)
 
 
 class TicketKomutlar(commands.Cog):
@@ -41,7 +47,7 @@ class TicketKomutlar(commands.Cog):
             return
 
         # Yalnızca destek ekibi kullanabilir
-        if not destek_ekibi_mi(interaction):
+        if not _is_support(interaction, self.settings):
             await interaction.response.send_message(
                 "❌ Bu komutu yalnızca destek ekibi kullanabilir.",
                 ephemeral=True
@@ -104,7 +110,7 @@ class TicketKomutlar(commands.Cog):
             )
             return
 
-        if not destek_ekibi_mi(interaction):
+        if not _is_support(interaction, self.settings):
             await interaction.response.send_message(
                 "❌ Bu komutu yalnızca destek ekibi kullanabilir.",
                 ephemeral=True
@@ -150,7 +156,7 @@ class TicketKomutlar(commands.Cog):
             )
             return
 
-        if not destek_ekibi_mi(interaction):
+        if not _is_support(interaction, self.settings):
             await interaction.response.send_message(
                 "❌ Bu komutu yalnızca destek ekibi kullanabilir.",
                 ephemeral=True
@@ -214,7 +220,7 @@ class TicketKomutlar(commands.Cog):
             )
             return
 
-        if not destek_ekibi_mi(interaction):
+        if not _is_support(interaction, self.settings):
             await interaction.response.send_message(
                 "❌ Bu komutu yalnızca destek ekibi kullanabilir.",
                 ephemeral=True
