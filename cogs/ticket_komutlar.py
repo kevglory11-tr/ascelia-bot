@@ -46,13 +46,13 @@ class TicketKomutlar(commands.Cog):
         embed.add_field(
             name="📋  Lütfen aşağıdaki bilgileri eksiksiz doldurun",
             value=(
-                "**Kullanıcı adı:**\n"
-                "**Karakter adı:**\n"
-                "**Kayıt olurken oluşturduğunuz 4 haneli pin kodu:**\n"
-                "**Bilgisayarınızın adı:**\n"
-                "**Bilgisayar MAC adresiniz:**\n"
-                "**Nesne marketten satın aldıysanız son alınan ürün:**\n"
-                "**Yeni e-mail adresiniz:**"
+                "<a:whitearrow:1478394670856933429>  **Kullanıcı adı:**\n\n"
+                "<a:whitearrow:1478394670856933429>  **Karakter adı:**\n\n"
+                "<a:whitearrow:1478394670856933429>  **Kayıt olurken oluşturduğunuz 4 haneli pin kodu:**\n\n"
+                "<a:whitearrow:1478394670856933429>  **Bilgisayarınızın adı:**\n\n"
+                "<a:whitearrow:1478394670856933429>  **Bilgisayar MAC adresiniz:**\n\n"
+                "<a:whitearrow:1478394670856933429>  **Nesne marketten satın aldıysanız son alınan ürün:**\n\n"
+                "<a:whitearrow:1478394670856933429>  **Yeni e-mail adresiniz:**"
             ),
             inline=False
         )
@@ -88,16 +88,33 @@ class TicketKomutlar(commands.Cog):
 
         embed = discord.Embed(title="🔐  Güvenli Bilgisayar Adımları", color=0x2F3136)
         embed.add_field(
-            name="\u200b",
-            value=(
-                "**1️⃣**  Web sitemiz üzerinden hesabınıza giriş yapın.\n\n"
-                "**2️⃣**  Giriş yaptıktan sonra **Güvenli Bilgisayar** butonuna tıklayın.\n\n"
-                "**3️⃣**  Açılan sayfada hesabınızda kayıtlı bulunan e-posta adresine onay kodu gönderin.\n\n"
-                "**4️⃣**  E-posta adresinize gelen onay kodunu sitemizde doğru şekilde girin ve işlemi tamamlayın.\n\n"
-                "**5️⃣**  Bu adım başarılı şekilde tamamlandıktan sonra tekrar **Güvenli Bilgisayar** butonuna "
-                "basarak **Onay Bekleyen Cihazlar** ekranına gidin.\n\n"
-                "**6️⃣**  Burada hesabınızın açılmasını istediğiniz cihazı seçip onay verebilirsiniz. ✅"
-            ),
+            name="1️⃣  Siteye Giriş",
+            value="Web sitemiz üzerinden hesabınıza giriş yapın.",
+            inline=False
+        )
+        embed.add_field(
+            name="2️⃣  Güvenli Bilgisayar Butonu",
+            value="Giriş yaptıktan sonra **Güvenli Bilgisayar** butonuna tıklayın.",
+            inline=False
+        )
+        embed.add_field(
+            name="3️⃣  Onay Kodu Gönder",
+            value="Açılan sayfada hesabınızda kayıtlı e-posta adresine onay kodu gönderin.",
+            inline=False
+        )
+        embed.add_field(
+            name="4️⃣  Kodu Doğrula",
+            value="E-posta adresinize gelen onay kodunu siteye doğru şekilde girin ve işlemi tamamlayın.",
+            inline=False
+        )
+        embed.add_field(
+            name="5️⃣  Onay Bekleyen Cihazlar",
+            value="İşlemi tamamladıktan sonra tekrar **Güvenli Bilgisayar** butonuna basarak **Onay Bekleyen Cihazlar** ekranına gidin.",
+            inline=False
+        )
+        embed.add_field(
+            name="6️⃣  Cihazı Onayla  ✅",
+            value="Hesabınızın açılmasını istediğiniz cihazı listeden seçip onay verin.",
             inline=False
         )
         embed.set_footer(text="M2Board Destek Ekibi")
@@ -176,12 +193,12 @@ class TicketKomutlar(commands.Cog):
         embed.add_field(
             name="📋  Lütfen aşağıdaki bilgileri eksiksiz doldurun",
             value=(
-                "**Karakter adı:**\n"
-                "**Kayıt olurken oluşturduğunuz 4 haneli pin kodu:**\n"
-                "**Bilgisayarınızın adı:**\n"
-                "**Bilgisayar MAC adresiniz:**\n"
-                "**Nesne marketten satın aldıysanız son alınan ürün:**\n"
-                "**Mail adresiniz:**"
+                "<a:whitearrow:1478394670856933429>  **Karakter adı:**\n\n"
+                "<a:whitearrow:1478394670856933429>  **Kayıt olurken oluşturduğunuz 4 haneli pin kodu:**\n\n"
+                "<a:whitearrow:1478394670856933429>  **Bilgisayarınızın adı:**\n\n"
+                "<a:whitearrow:1478394670856933429>  **Bilgisayar MAC adresiniz:**\n\n"
+                "<a:whitearrow:1478394670856933429>  **Nesne marketten satın aldıysanız son alınan ürün:**\n\n"
+                "<a:whitearrow:1478394670856933429>  **Mail adresiniz:**"
             ),
             inline=False
         )
