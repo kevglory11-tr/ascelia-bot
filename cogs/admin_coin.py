@@ -177,5 +177,52 @@ class TumCoinSilOnayView(discord.ui.View):
         log.info(f"İşlemler: {interaction.user} → {kullanici}")
 
 
+    @app_commands.command(name="coin-sıralaması", description="[Admin] Tüm sunucunun coin sıralamasını göster.")
+    @app_commands.describe(sayfa="Sayfa numarası (her sayfada 10 kişi)")
+    async def coin_siralaması(self, interaction: discord.Interaction, sayfa: int = 1):
+        if not self._admin_kontrol(interaction):
+            await interaction.response.send_message("❌ Yetkin yok!", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        limit  = 10
+        offset = (sayfa - 1) * limit
+
+        async with database.pool.acquire() as conn:
+            toplam = await conn.fetchval("SELECT COUNT(*) FROM coins WHERE bakiye > 0")
+            rows   = await conn.fetch(
+                "SELECT username, bakiye, giris_serisi FROM coins WHERE bakiye > 0 ORDER BY bakiye DESC LIMIT $1 OFFSET $2",
+                limit, offset
+            )
+
+        if not rows:
+            await interaction.followup.send("Henüz coin sahibi kimse yok!", ephemeral=True)
+            return
+
+        toplam_sayfa = max(1, (toplam + limit - 1) // limit)
+        embed = discord.Embed(
+            title=f"{COIN_ANIM} Coin Sıralaması — Sayfa {sayfa}/{toplam_sayfa}",
+            description="",
+            color=0xFFD700,
+        )
+
+        madalyalar = [
+            "<a:gold:1478525208766709833>",
+            "<a:silver:1478525216069259487>",
+            "<a:bronze:1478525229583302656>",
+        ]
+        siralama = ""
+        for i, row in enumerate(rows):
+            gercek_sira = offset + i + 1
+            madalya     = madalyalar[i] if sayfa == 1 and i < 3 else f"`{gercek_sira}.`"
+            seri_text   = f" 🔥 {row['giris_serisi']} gün" if row["giris_serisi"] >= 3 else ""
+            siralama   += f"{madalya} **{row['username']}** — {row['bakiye']:,} {M2B}{seri_text}\n"
+
+        embed.description = siralama
+        embed.set_footer(text=f"Toplam {toplam} kullanıcı • /coin-sıralaması [sayfa]")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        log.info(f"Coin sıralaması görüntülendi: {interaction.user} (sayfa {sayfa})")
+
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(AdminCoinCog(bot))

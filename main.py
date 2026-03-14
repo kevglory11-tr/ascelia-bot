@@ -38,6 +38,8 @@ COGS = [
     "cogs.gunluk_gorev",
     "cogs.skor_tahmin",
     "cogs.atam",
+    # ── Ticket komutları ─────────────────────────────────────
+    "cogs.ticket_komutlar",
 ]
 
 
