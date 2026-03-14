@@ -1,6 +1,6 @@
 """
 cogs/ticket_komutlar.py — Ticket içi destek ekibi komutları
-Komutlar yalnızca ticket kanallarında ve destek rolüne sahip kişiler tarafından kullanılabilir.
+Komutlar yalnızca TICKET_SUPPORT_ROL_IDLERI env var'ında tanımlı role sahip kişiler tarafından kullanılabilir.
 """
 
 import discord
@@ -9,19 +9,12 @@ from discord.ext import commands
 import logging
 
 from config.settings import Settings
-from cogs.ticket import acik_ticketlar
 
 log = logging.getLogger("cog.ticket_komutlar")
 
 
-def ticket_kanal_mi(kanal_id: int) -> bool:
-    """Kanalın aktif bir ticket kanalı olup olmadığını kontrol et."""
-    return kanal_id in acik_ticketlar
-
-
-def destek_ekibi_mi(interaction: discord.Interaction) -> bool:
-    """Kullanıcının destek rolüne sahip olup olmadığını kontrol et."""
-    settings = Settings()
+def destek_ekibi_mi(interaction: discord.Interaction, settings: Settings) -> bool:
+    """Kullanıcının Railway'de tanımlı destek rolüne sahip olup olmadığını kontrol et."""
     return any(r.id in settings.ticket_support_rol_idleri for r in interaction.user.roles)
 
 
@@ -38,32 +31,18 @@ class TicketKomutlar(commands.Cog):
         description="E-Mail değişikliği için gerekli bilgi formunu gönderir."
     )
     async def email_degisim(self, interaction: discord.Interaction):
-        # Yalnızca ticket kanalında çalışır
-        if not ticket_kanal_mi(interaction.channel_id):
-            await interaction.response.send_message(
-                "❌ Bu komut yalnızca ticket kanallarında kullanılabilir.",
-                ephemeral=True
-            )
-            return
-
-        # Yalnızca destek ekibi kullanabilir
-        if not _is_support(interaction, self.settings):
+        if not destek_ekibi_mi(interaction, self.settings):
             await interaction.response.send_message(
                 "❌ Bu komutu yalnızca destek ekibi kullanabilir.",
                 ephemeral=True
             )
             return
 
-        embed = discord.Embed(
-            title="📨  E-Mail Değişikliği",
-            color=0x2F3136
-        )
-
+        embed = discord.Embed(title="📨  E-Mail Değişikliği", color=0x2F3136)
         embed.description = (
             "> ⚠️ **Hesap bilgileriniz ile uyuşmayan bilgiler paylaşmanız durumunda "
             "işlem talebiniz reddedilecektir.**"
         )
-
         embed.add_field(
             name="📋  Lütfen aşağıdaki bilgileri eksiksiz doldurun",
             value=(
@@ -77,7 +56,6 @@ class TicketKomutlar(commands.Cog):
             ),
             inline=False
         )
-
         embed.add_field(
             name="\u200b",
             value=(
@@ -89,9 +67,7 @@ class TicketKomutlar(commands.Cog):
             ),
             inline=False
         )
-
         embed.set_footer(text="M2Board Destek Ekibi")
-
         await interaction.response.send_message(embed=embed)
         log.info(f"/email-değişim → {interaction.channel} ({interaction.user})")
 
@@ -103,25 +79,14 @@ class TicketKomutlar(commands.Cog):
         description="Güvenli Bilgisayar adımlarını açıklar."
     )
     async def guvenli_bilgisayar(self, interaction: discord.Interaction):
-        if not ticket_kanal_mi(interaction.channel_id):
-            await interaction.response.send_message(
-                "❌ Bu komut yalnızca ticket kanallarında kullanılabilir.",
-                ephemeral=True
-            )
-            return
-
-        if not _is_support(interaction, self.settings):
+        if not destek_ekibi_mi(interaction, self.settings):
             await interaction.response.send_message(
                 "❌ Bu komutu yalnızca destek ekibi kullanabilir.",
                 ephemeral=True
             )
             return
 
-        embed = discord.Embed(
-            title="🔐  Güvenli Bilgisayar Adımları",
-            color=0x2F3136
-        )
-
+        embed = discord.Embed(title="🔐  Güvenli Bilgisayar Adımları", color=0x2F3136)
         embed.add_field(
             name="\u200b",
             value=(
@@ -135,9 +100,7 @@ class TicketKomutlar(commands.Cog):
             ),
             inline=False
         )
-
         embed.set_footer(text="M2Board Destek Ekibi")
-
         await interaction.response.send_message(embed=embed)
         log.info(f"/güvenli-bilgisayar → {interaction.channel} ({interaction.user})")
 
@@ -149,31 +112,19 @@ class TicketKomutlar(commands.Cog):
         description="Windows Güvenlik Engeli çözüm adımlarını açıklar."
     )
     async def windows_defender(self, interaction: discord.Interaction):
-        if not ticket_kanal_mi(interaction.channel_id):
-            await interaction.response.send_message(
-                "❌ Bu komut yalnızca ticket kanallarında kullanılabilir.",
-                ephemeral=True
-            )
-            return
-
-        if not _is_support(interaction, self.settings):
+        if not destek_ekibi_mi(interaction, self.settings):
             await interaction.response.send_message(
                 "❌ Bu komutu yalnızca destek ekibi kullanabilir.",
                 ephemeral=True
             )
             return
 
-        embed = discord.Embed(
-            title="🛡️  Windows Güvenlik Engeli Çözümü",
-            color=0x2F3136
-        )
-
+        embed = discord.Embed(title="🛡️  Windows Güvenlik Engeli Çözümü", color=0x2F3136)
         embed.description = (
             "▫️ Windows bazı dosyaları tanımadığı için uyarı verebilir veya açılmayı engelleyebilir. "
             "Bu durum virüs kaynaklı değildir, Windows'un yabancı dosyalara karşı aldığı otomatik korumadır.\n\n"
             "Oyunu açabilmek için şu adımları uygulayın:"
         )
-
         embed.add_field(
             name="📋  Adımlar",
             value=(
@@ -187,7 +138,6 @@ class TicketKomutlar(commands.Cog):
             ),
             inline=False
         )
-
         embed.add_field(
             name="🔧  Ek Bilgilendirme",
             value=(
@@ -199,9 +149,7 @@ class TicketKomutlar(commands.Cog):
             ),
             inline=False
         )
-
         embed.set_footer(text="M2Board Destek Ekibi")
-
         await interaction.response.send_message(embed=embed)
         log.info(f"/windows-defender → {interaction.channel} ({interaction.user})")
 
@@ -213,30 +161,18 @@ class TicketKomutlar(commands.Cog):
         description="Kullanıcı adı öğrenme talebi için gerekli bilgi formunu gönderir."
     )
     async def kullanici_ogren(self, interaction: discord.Interaction):
-        if not ticket_kanal_mi(interaction.channel_id):
-            await interaction.response.send_message(
-                "❌ Bu komut yalnızca ticket kanallarında kullanılabilir.",
-                ephemeral=True
-            )
-            return
-
-        if not _is_support(interaction, self.settings):
+        if not destek_ekibi_mi(interaction, self.settings):
             await interaction.response.send_message(
                 "❌ Bu komutu yalnızca destek ekibi kullanabilir.",
                 ephemeral=True
             )
             return
 
-        embed = discord.Embed(
-            title="📨  Kullanıcı Adı Öğrenme Talebi",
-            color=0x2F3136
-        )
-
+        embed = discord.Embed(title="📨  Kullanıcı Adı Öğrenme Talebi", color=0x2F3136)
         embed.description = (
             "> ⚠️ **Hesap bilgileriniz ile uyuşmayan bilgiler paylaşmanız durumunda "
             "işlem talebiniz reddedilecektir.**"
         )
-
         embed.add_field(
             name="📋  Lütfen aşağıdaki bilgileri eksiksiz doldurun",
             value=(
@@ -249,7 +185,6 @@ class TicketKomutlar(commands.Cog):
             ),
             inline=False
         )
-
         embed.add_field(
             name="\u200b",
             value=(
@@ -261,9 +196,7 @@ class TicketKomutlar(commands.Cog):
             ),
             inline=False
         )
-
         embed.set_footer(text="M2Board Destek Ekibi")
-
         await interaction.response.send_message(embed=embed)
         log.info(f"/kullanıcı-öğren → {interaction.channel} ({interaction.user})")
 
