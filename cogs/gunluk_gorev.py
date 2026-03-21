@@ -44,11 +44,11 @@ GOREVLER = [
         "tur":     "otomatik",
     },
     {
-        "id":      "ses_15",
-        "baslik":  "Ses Kanalında 15 Dakika Kal",
-        "aciklama": "Herhangi bir ses kanalında 15 dakika aktif ol.",
+        "id":      "instagram_yorum",
+        "baslik":  "Instagram Gönderisine Yorum At",
+        "aciklama": "[@tmgamesatius](https://www.instagram.com/tmgamesatius) Instagram profilindeki son oyun gönderisine yorum at.",
         "odul":    25,
-        "tur":     "otomatik",
+        "tur":     "admin",
     },
     {
         "id":      "tepki_25",
@@ -109,7 +109,7 @@ def _ilerleme(discord_id: int, gorev_id: str) -> tuple:
 
 
 # ── Oy Modalı ─────────────────────────────────────────────────
-class OyModal(discord.ui.Modal, title="Günlük Oy Kanıtı"):
+class AdminGorevModal(discord.ui.Modal, title="Görev Kanıtı"):
     oyun_adi = discord.ui.TextInput(
         label="Oyun Hesap Adı", placeholder="Metin2 oyun adın",
         min_length=2, max_length=50)
@@ -121,7 +121,7 @@ class OyModal(discord.ui.Modal, title="Günlük Oy Kanıtı"):
         min_length=5, max_length=200)
 
     def __init__(self, gorev: dict):
-        super().__init__()
+        super().__init__(title=f"Görev Kanıtı — {gorev['baslik'][:30]}")
         self.gorev = gorev
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -136,63 +136,84 @@ class OyModal(discord.ui.Modal, title="Günlük Oy Kanıtı"):
                     f"{FAIL_EMO} Bugün zaten gönderdın! Onay bekleniyor.", ephemeral=True)
                 return
 
+            odul_metin = "100 MP Kuponu" if self.gorev["id"] == "oy_ver" else f"{self.gorev['odul']} M2B Coin"
+
             await conn.execute(
                 """INSERT INTO gunluk_gorev_log
-                   (discord_id, isim, gorev_id, gorev_baslik, durum, tarih, kanit)
-                   VALUES ($1,$2,$3,$4,'bekliyor',$5,$6)""",
+                   (discord_id, isim, gorev_id, gorev_baslik, durum, tarih, kanit, odul)
+                   VALUES ($1,$2,$3,$4,'bekliyor',$5,$6,$7)""",
                 interaction.user.id, interaction.user.display_name,
                 self.gorev["id"], self.gorev["baslik"], bugun,
-                f"Oyun: {self.oyun_adi.value} | Karakter: {self.karakter.value} | {self.kanit.value}"
+                f"Oyun: {self.oyun_adi.value} | Karakter: {self.karakter.value} | {self.kanit.value}",
+                self.gorev["odul"]
             )
 
         await interaction.response.send_message(
-            f"{OK} Talebın alındı! Onaylanınca **100 MP Kuponu** hesabına eklenecek.",
+            f"{OK} Talebın alındı! Onaylanınca **{odul_metin}** hesabına eklenecek.",
             ephemeral=True)
 
         if GOREV_KANAL_ID:
             kanal = interaction.client.get_channel(GOREV_KANAL_ID)
             if kanal:
-                embed = discord.Embed(title=f"{BILDIRIM}  Günlük Oy Talebi", color=0x2ECC71)
-                embed.add_field(name="Kullanıcı",  value=interaction.user.mention,  inline=True)
-                embed.add_field(name="Oyun Adı",   value=self.oyun_adi.value,       inline=True)
-                embed.add_field(name="Karakter",   value=self.karakter.value,       inline=True)
-                embed.add_field(name="Kanıt",      value=self.kanit.value,          inline=False)
-                embed.add_field(name="Ödül",       value="100 MP Kuponu",           inline=True)
+                embed = discord.Embed(
+                    title=f"{BILDIRIM}  Görev Kanıtı — {self.gorev['baslik']}",
+                    color=0x2ECC71)
+                embed.add_field(name="Kullanıcı", value=interaction.user.mention, inline=True)
+                embed.add_field(name="Oyun Adı",  value=self.oyun_adi.value,      inline=True)
+                embed.add_field(name="Karakter",  value=self.karakter.value,      inline=True)
+                embed.add_field(name="Kanıt",     value=self.kanit.value,         inline=False)
+                embed.add_field(name="Ödül",      value=odul_metin,               inline=True)
                 embed.set_footer(text=f"ID: {interaction.user.id} | {bugun}")
                 await kanal.send(
                     embed=embed,
-                    view=OyOnayView(interaction.user.id, interaction.user.display_name,
-                                    self.gorev["id"], bugun)
+                    view=AdminOnayView(
+                        interaction.user.id, interaction.user.display_name,
+                        self.gorev["id"], bugun, self.gorev["odul"],
+                        self.gorev["id"] == "oy_ver"
+                    )
                 )
-        log.info(f"Oy talebi: {interaction.user}")
+        log.info(f"Admin görev talebi: {interaction.user} → {self.gorev['id']}")
 
 
-class OyOnayView(discord.ui.View):
-    def __init__(self, discord_id, isim, gorev_id, tarih):
+class AdminOnayView(discord.ui.View):
+    def __init__(self, discord_id, isim, gorev_id, tarih, odul_coin, mp_odulu=False):
         super().__init__(timeout=None)
         self.discord_id = discord_id
         self.isim       = isim
         self.gorev_id   = gorev_id
         self.tarih      = tarih
+        self.odul_coin  = odul_coin
+        self.mp_odulu   = mp_odulu  # True ise 100 MP, False ise coin
 
-    @discord.ui.button(label="Onayla — 100 MP Ver", style=discord.ButtonStyle.success, emoji="✅")
+    @discord.ui.button(label="Onayla", style=discord.ButtonStyle.success, emoji="✅")
     async def onayla(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with database.pool.acquire() as conn:
             await conn.execute(
                 "UPDATE gunluk_gorev_log SET durum='onaylandi' WHERE discord_id=$1 AND gorev_id=$2 AND tarih=$3",
                 self.discord_id, self.gorev_id, self.tarih)
+            if not self.mp_odulu and self.odul_coin > 0:
+                uye_obj = interaction.guild.get_member(self.discord_id)
+                isim = uye_obj.display_name if uye_obj else self.isim
+                await database.add_coins(self.discord_id, isim, self.odul_coin,
+                                         aciklama=f"Günlük görev onayı: {self.gorev_id}")
         try:
             uye = interaction.guild.get_member(self.discord_id)
             if uye:
-                await uye.send(
-                    f"{OK} **Günlük oy görevin onaylandı!**\n"
-                    "**100 MP Kuponu** için ticket açabilirsin.")
+                if self.mp_odulu:
+                    msg = (f"{OK} **Günlük görevin onaylandı!**\n"
+                           "**100 MP Kuponu** için ticket açabilirsin.")
+                else:
+                    msg = (f"{OK} **Günlük görevin onaylandı!**\n"
+                           f"{COIN_ANIM} **+{self.odul_coin} M2B Coin** hesabına eklendi!")
+                await uye.send(msg)
         except Exception:
             pass
         for child in self.children:
             child.disabled = True
+        odul_str = "100 MP" if self.mp_odulu else f"+{self.odul_coin} Coin"
         await interaction.response.edit_message(
-            content=f"✅ **{self.isim}** — Onaylandı ({interaction.user.display_name})", view=self)
+            content=f"✅ **{self.isim}** — Onaylandı · {odul_str} ({interaction.user.display_name})",
+            view=self)
 
     @discord.ui.button(label="Reddet", style=discord.ButtonStyle.danger, emoji="❌")
     async def reddet(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -204,24 +225,25 @@ class OyOnayView(discord.ui.View):
             uye = interaction.guild.get_member(self.discord_id)
             if uye:
                 await uye.send(
-                    f"{FAIL_EMO} **Günlük oy görevin reddedildi.**\n"
-                    "Geçerli bir ekran görüntüsü gönderdiğinden emin ol.")
+                    f"{FAIL_EMO} **Günlük görevin reddedildi.**\n"
+                    "Geçerli bir kanıt gönderdiğinden emin ol.")
         except Exception:
             pass
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(
-            content=f"❌ **{self.isim}** — Reddedildi ({interaction.user.display_name})", view=self)
+            content=f"❌ **{self.isim}** — Reddedildi ({interaction.user.display_name})",
+            view=self)
 
 
-class OyGonderView(discord.ui.View):
+class AdminGorevView(discord.ui.View):
     def __init__(self, gorev):
         super().__init__(timeout=300)
         self.gorev = gorev
 
     @discord.ui.button(label="Oy Kanıtı Gönder", style=discord.ButtonStyle.primary, emoji="🗳️")
     async def gonder(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(OyModal(self.gorev))
+        await interaction.response.send_modal(AdminGorevModal(self.gorev))
 
 
 # ── Cog ────────────────────────────────────────────────────────
@@ -282,26 +304,6 @@ class GunlukGorevCog(commands.Cog):
                 member = reaction.message.guild.get_member(user.id)
                 if member:
                     await self._tamamla(member, reaction.message.guild, gorev)
-
-    # ── Event: ses kanalı ─────────────────────────────────────
-    @commands.Cog.listener()
-    async def on_voice_state_update(self, member: discord.Member, before, after):
-        if member.bot:
-            return
-        gorev = bugunun_gorevi(member.id)
-        if gorev["id"] != "ses_15":
-            return
-        t = _t(member.id)
-
-        if before.channel is None and after.channel is not None:
-            t["ses_baslangic"] = datetime.utcnow()
-        elif before.channel is not None and after.channel is None:
-            if t["ses_baslangic"]:
-                sure = (datetime.utcnow() - t["ses_baslangic"]).total_seconds() / 60
-                t["ses_sure"] += sure
-                t["ses_baslangic"] = None
-                if t["ses_sure"] >= 15:
-                    await self._tamamla(member, member.guild, gorev)
 
     # ── Görev tamamlama ────────────────────────────────────────
     async def _tamamla(self, member: discord.Member, guild: discord.Guild, gorev: dict):
@@ -380,7 +382,7 @@ class GunlukGorevCog(commands.Cog):
         else:
             embed.set_footer(text=f"Oy verdikten sonra kanıtını gönder → {OY_LINK}")
             await interaction.response.send_message(
-                embed=embed, view=OyGonderView(gorev), ephemeral=True)
+                embed=embed, view=AdminGorevView(gorev), ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
