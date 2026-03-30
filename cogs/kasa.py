@@ -6,7 +6,7 @@ from discord import app_commands
 
 import database
 from utils.logger import setup_logger
-from utils.siralama_gorseli import GORSEL_SURUM, siralama_gorseli_olustur
+from utils.siralama_gorseli import siralama_gorseli_olustur
 
 log    = setup_logger("kasa")
 M2B    = "<:m2bcoin:1480481551337783437>"
@@ -70,12 +70,8 @@ class KasaCog(commands.Cog):
                 color=0xFFD700,
             )
             embed.set_image(url="attachment://siralama.png")
-            embed.set_footer(text=f"Hizalama v{GORSEL_SURUM} · /bakiye ile kendi bakiyeni gör")
-            await interaction.followup.send(
-                content=f"📊 Görsel sıralama (hizalama **v{GORSEL_SURUM}**).",
-                embed=embed,
-                file=dosya,
-            )
+            embed.set_footer(text="/bakiye ile kendi bakiyeni gör")
+            await interaction.followup.send(embed=embed, file=dosya)
         except Exception as e:
             log.error(f"sıralama hatası: {e}", exc_info=True)
             await interaction.followup.send(f"{FAIL} Bir hata oluştu.", ephemeral=True)
