@@ -19,6 +19,9 @@ from utils.logger import setup_logger
 
 log = setup_logger("siralama_gorseli")
 
+# Embed/destek: yeni hizalama çıktısını ayırt etmek için (kasa.py footer’da kullanılır)
+GORSEL_SURUM = 6
+
 _PROJE_KOK = Path(__file__).resolve().parent.parent
 SABLON_YOLU = _PROJE_KOK / "assets" / "siralama_sablon.png"
 _BOT_FONT = _PROJE_KOK / "assets" / "font.ttf"
@@ -26,24 +29,23 @@ _BOT_FONT = _PROJE_KOK / "assets" / "font.ttf"
 # 1024×573 şablon — şablondaki koyu daire merkezlerine göre (otomatik tarama ile)
 # Yarıçaplar çerçeveye sığacak şekilde küçük tutuldu; taşma olmasın diye.
 PODIUM = [
-    {"cx": 113, "cy": 101, "r": 28},
-    {"cx": 263, "cy": 98, "r": 24},
-    {"cx": 375, "cy": 110, "r": 22},
+    {"cx": 113, "cy": 101, "r": 26},
+    {"cx": 263, "cy": 98, "r": 22},
+    {"cx": 375, "cy": 110, "r": 21},
 ]
 
-# Alt liste (4–10): avatar merkezleri — şablonda sıra numaraları zaten var, tekrar çizilmez
+# Alt liste (4–10): merkez x şablonda satır başına ~84–88; cy aşağı kayarsa 10. sıra kesilir
 LISTE_SATIRLARI = [
-    {"cx": 52, "cy": 294, "r": 19},
-    {"cx": 52, "cy": 337, "r": 19},
-    {"cx": 52, "cy": 380, "r": 19},
-    {"cx": 52, "cy": 423, "r": 19},
-    {"cx": 52, "cy": 466, "r": 19},
-    {"cx": 52, "cy": 509, "r": 19},
-    {"cx": 52, "cy": 552, "r": 18},
+    {"cx": 87, "cy": 286, "r": 17},
+    {"cx": 87, "cy": 329, "r": 17},
+    {"cx": 87, "cy": 372, "r": 17},
+    {"cx": 87, "cy": 415, "r": 17},
+    {"cx": 87, "cy": 458, "r": 17},
+    {"cx": 87, "cy": 501, "r": 17},
+    {"cx": 87, "cy": 544, "r": 16},
 ]
-# İsim alanı (şablondaki “4” … “10” yazısından sonra), skor sağda altın boşluğa
-LISTE_ISIM_X0 = 112
-LISTE_SKOR_SAG = 500
+LISTE_ISIM_X0 = 132
+LISTE_SKOR_SAG = 458
 
 # İsimler: mümkünse emoji + Latin (Windows’ta Segoe UI Emoji iyi karışık metin verir)
 FONT_ISIM_YOLLARI = [
@@ -260,4 +262,5 @@ async def siralama_gorseli_olustur(
     buf = io.BytesIO()
     kart.convert("RGB").save(buf, format="PNG", optimize=True)
     buf.seek(0)
+    log.info("Sıralama görseli hazır (sürüm %s, kullanıcı=%s)", GORSEL_SURUM, n)
     return buf
