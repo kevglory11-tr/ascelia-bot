@@ -61,23 +61,7 @@ class KasaCog(commands.Cog):
                 await interaction.followup.send("Henüz kayıtlı kimse yok!", ephemeral=True)
                 return
 
-            try:
-                buf = await siralama_gorseli_olustur(self.bot, liste)
-            except FileNotFoundError:
-                log.warning("siralama_sablon.png bulunamadı; metin sıralamasına düşülüyor.")
-                madalyalar = ["<a:gold:1478525208766709833>", "<a:silver:1478525216069259487>", "<a:bronze:1478525229583302656>"]
-                satirlar = ""
-                for i, row in enumerate(liste, 1):
-                    medal = madalyalar[i - 1] if i <= 3 else f"`{i}.`"
-                    satirlar += f"{medal} **{row['username']}** — {row['bakiye']:,} {M2B}\n"
-                embed = discord.Embed(
-                    title=f"{M2B} M2B Coin — Sıralama",
-                    description=satirlar,
-                    color=0xFFD700,
-                )
-                embed.set_footer(text="/bakiye ile kendi bakiyeni gör")
-                await interaction.followup.send(embed=embed)
-                return
+            buf = await siralama_gorseli_olustur(self.bot, liste)
 
             dosya = discord.File(buf, filename="siralama.png")
             embed = discord.Embed(
