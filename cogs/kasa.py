@@ -6,6 +6,7 @@ from discord import app_commands
 
 import database
 from utils.logger import setup_logger
+from utils.siralama_gorseli import siralama_gorseli_olustur
 
 log    = setup_logger("kasa")
 M2B    = "<:m2bcoin:1480481551337783437>"
@@ -60,19 +61,32 @@ class KasaCog(commands.Cog):
                 await interaction.followup.send("Henüz kayıtlı kimse yok!", ephemeral=True)
                 return
 
-            madalyalar = ["<a:gold:1478525208766709833>", "<a:silver:1478525216069259487>", "<a:bronze:1478525229583302656>"]
-            satirlar   = ""
-            for i, row in enumerate(liste, 1):
-                medal    = madalyalar[i - 1] if i <= 3 else f"`{i}.`"
-                satirlar += f"{medal} **{row['username']}** — {row['bakiye']:,} {M2B}\n"
+            try:
+                buf = await siralama_gorseli_olustur(self.bot, liste)
+            except FileNotFoundError:
+                madalyalar = ["<a:gold:1478525208766709833>", "<a:silver:1478525216069259487>", "<a:bronze:1478525229583302656>"]
+                satirlar = ""
+                for i, row in enumerate(liste, 1):
+                    medal = madalyalar[i - 1] if i <= 3 else f"`{i}.`"
+                    satirlar += f"{medal} **{row['username']}** — {row['bakiye']:,} {M2B}\n"
+                embed = discord.Embed(
+                    title=f"{M2B} M2B Coin — Sıralama",
+                    description=satirlar,
+                    color=0xFFD700,
+                )
+                embed.set_footer(text="/bakiye ile kendi bakiyeni gör")
+                await interaction.followup.send(embed=embed)
+                return
 
+            dosya = discord.File(buf, filename="siralama.png")
             embed = discord.Embed(
                 title=f"{M2B} M2B Coin — Sıralama",
-                description=satirlar,
+                description="En zengin 10 kullanıcı (görsel özet)",
                 color=0xFFD700,
             )
+            embed.set_image(url="attachment://siralama.png")
             embed.set_footer(text="/bakiye ile kendi bakiyeni gör")
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, file=dosya)
         except Exception as e:
             log.error(f"sıralama hatası: {e}", exc_info=True)
             await interaction.followup.send(f"{FAIL} Bir hata oluştu.", ephemeral=True)

@@ -235,7 +235,8 @@ async def set_son_giris(discord_id: int, tarih_str: str) -> int:
 async def get_leaderboard(limit: int = 10):
     async with pool.acquire() as conn:
         return await conn.fetch(
-            "SELECT username, bakiye, level FROM coins ORDER BY bakiye DESC LIMIT $1", limit
+            "SELECT discord_id, username, bakiye, level FROM coins ORDER BY bakiye DESC LIMIT $1",
+            limit,
         )
 
 
