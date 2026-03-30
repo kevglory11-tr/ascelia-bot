@@ -1,8 +1,7 @@
 """
-utils/siralama_gorseli.py — Sıralama görseli: arka plan + tamamen kodla çizilen tablo.
+utils/siralama_gorseli.py — Kompakt, modern sıralama kartı (kodla çizim).
 
-assets/siralama_arka.png  (opsiyonel) — boş veya illüstrasyon; yoksa koyu gradyan kullanılır.
-Eski siralama_sablon.png üzerine piksel hizalama kullanılmaz (bakımı zordu).
+assets/siralama_arka.png — opsiyonel arka plan; yoksa nötr koyu gradyan.
 """
 
 from __future__ import annotations
@@ -21,58 +20,55 @@ from utils.logger import setup_logger
 
 log = setup_logger("siralama_gorseli")
 
-GORSEL_SURUM = 7
+GORSEL_SURUM = 8
 
 _PROJE_KOK = Path(__file__).resolve().parent.parent
-# İstersen buraya kendi boş / arka görselini koy: siralama_arka.png
 ARKA_YOLU = _PROJE_KOK / "assets" / "siralama_arka.png"
 _BOT_FONT = _PROJE_KOK / "assets" / "font.ttf"
 
-# Çıktı boyutu (Discord için uygun genişlik)
-GENISLIK = 1024
-YUKSEKLIK = 680
+# Kompakt çıktı — Discord’da daha az “dev ekran” hissi
+GENISLIK = 720
+YUKSEKLIK = 468
 
-MARGIN = 20
-SATIR_YUKSEKLIK = 48
-SATIR_ARALIK = 7
+MARGIN = 18
+UST_BASLIK_H = 32
+PODYUM_KART_H = 100
+PODYUM_GAP = 8
+LISTE_SATIR_H = 38
+LISTE_GAP = 5
+
+# Modern koyu arayüz paleti (slate / indigo)
+C_ARKA_UST = (12, 18, 32)
+C_ARKA_ALT = (15, 23, 42)
+C_YUZEY = (30, 41, 59)  # slate-700
+C_YUZEY2 = (24, 33, 48)
+C_KENAR = (71, 85, 105)  # slate-600
+C_METIN = (241, 245, 249)  # slate-100
+C_SOLUK = (148, 163, 184)  # slate-400
+C_VURG = (129, 140, 248)  # indigo-400
+C_ALTIN = (251, 191, 36)  # amber-400
+C_GUM = (203, 213, 225)
+C_BRONZ = (180, 83, 9)
 
 FONT_ISIM_YOLLARI = [
-    r"C:\Windows\Fonts\seguiemj.ttf",
     r"C:\Windows\Fonts\segoeui.ttf",
+    r"C:\Windows\Fonts\seguiemj.ttf",
     "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 ]
 
-FONT_YOLLARI = [
+FONT_KALIN = [
+    r"C:\Windows\Fonts\segoeuib.ttf",
     r"C:\Windows\Fonts\arialbd.ttf",
-    r"C:\Windows\Fonts\arial.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
 ]
 if _BOT_FONT.is_file():
-    FONT_YOLLARI.insert(0, str(_BOT_FONT))
-
-FONT_INCE_YOLLARI = [
-    r"C:\Windows\Fonts\arial.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-]
-if _BOT_FONT.is_file():
-    FONT_INCE_YOLLARI.insert(0, str(_BOT_FONT))
+    FONT_KALIN.insert(0, str(_BOT_FONT))
 
 
-def _font_isim(boyut: int) -> ImageFont.FreeTypeFont:
-    for yol in FONT_ISIM_YOLLARI + FONT_YOLLARI:
-        if os.path.exists(yol):
-            try:
-                return ImageFont.truetype(yol, boyut)
-            except Exception:
-                continue
-    return ImageFont.load_default()
-
-
-def _font(boyut: int, kalin: bool = True) -> ImageFont.FreeTypeFont:
-    yollar = FONT_YOLLARI if kalin else FONT_INCE_YOLLARI
-    for yol in yollar:
+def _font(path_list: list[str], boyut: int) -> ImageFont.FreeTypeFont:
+    for yol in path_list:
         if os.path.exists(yol):
             try:
                 return ImageFont.truetype(yol, boyut)
@@ -88,18 +84,17 @@ def _yuvarlak_maske(boyut: int) -> Image.Image:
     return maske
 
 
-def _gradyan_arka(w: int, h: int) -> Image.Image:
-    """Şık koyu mor-lacivert gradyan."""
+def _gradyan_diagonal(w: int, h: int) -> Image.Image:
+    """Yumuşak çapraz geçiş."""
     img = Image.new("RGBA", (w, h))
     px = img.load()
     for y in range(h):
-        t = y / max(h - 1, 1)
-        r = int(22 + t * 18)
-        g = int(14 + t * 22)
-        b = int(48 + t * 35)
-        a = 255
         for x in range(w):
-            px[x, y] = (r, g, b, a)
+            t = (x / max(w - 1, 1) + y / max(h - 1, 1)) * 0.5
+            r = int(C_ARKA_UST[0] + t * (C_ARKA_ALT[0] - C_ARKA_UST[0]))
+            g = int(C_ARKA_UST[1] + t * (C_ARKA_ALT[1] - C_ARKA_UST[1]))
+            b = int(C_ARKA_UST[2] + t * (C_ARKA_ALT[2] - C_ARKA_UST[2]))
+            px[x, y] = (r, g, b, 255)
     return img
 
 
@@ -109,13 +104,15 @@ def _arka_hazirla(w: int, h: int) -> Image.Image:
             bg = Image.open(ARKA_YOLU).convert("RGBA")
             return bg.resize((w, h), Image.LANCZOS)
         except Exception as e:
-            log.warning("siralama_arka.png okunamadı, gradyan kullanılıyor: %s", e)
-    return _gradyan_arka(w, h)
+            log.warning("siralama_arka.png okunamadı: %s", e)
+    return _gradyan_diagonal(w, h)
 
 
-def _okunaklik_katmani(ust: Image.Image) -> Image.Image:
-    """Metin okunaklı olsun diye hafif koyu film (RGBA üst üste)."""
-    film = Image.new("RGBA", ust.size, (10, 8, 22, 115))
+def _film_arka(ust: Image.Image) -> Image.Image:
+    """Özel fotoğraf varsa hafif karartı; gradyanda gereksiz."""
+    if not ARKA_YOLU.is_file():
+        return ust
+    film = Image.new("RGBA", ust.size, (11, 15, 28, 95))
     return Image.alpha_composite(ust, film)
 
 
@@ -132,7 +129,7 @@ async def _indir(url: str, boyut: tuple[int, int]) -> Image.Image | None:
         return None
 
 
-def _metin_guvenli(s: str, max_len: int = 32) -> str:
+def _metin_guvenli(s: str, max_len: int = 28) -> str:
     s = s.strip()
     s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", s)
     if len(s) > max_len:
@@ -143,6 +140,8 @@ def _metin_guvenli(s: str, max_len: int = 32) -> str:
 def _kisalt_genislik(
     draw: ImageDraw.ImageDraw, font: ImageFont.FreeTypeFont, metin: str, max_w: int
 ) -> str:
+    if not metin:
+        return metin
     if draw.textbbox((0, 0), metin, font=font)[2] - draw.textbbox((0, 0), metin, font=font)[0] <= max_w:
         return metin
     k = metin
@@ -155,63 +154,41 @@ def _kisalt_genislik(
     return "…"
 
 
-def _golge_yazi(
+def _tx(
     draw: ImageDraw.ImageDraw,
     xy: tuple[int, int],
     metin: str,
     font: ImageFont.FreeTypeFont,
     fill: tuple[int, int, int, int],
-    golge: tuple[int, int, int, int] = (0, 0, 0, 200),
 ):
-    x, y = xy
-    for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-        draw.text((x + dx, y + dy), metin, font=font, fill=golge)
-    draw.text((x, y), metin, font=font, fill=fill)
+    draw.text(xy, metin, font=font, fill=fill)
 
 
-def _yazi_orta_x(draw, cx: int, y: int, metin: str, font, fill):
+def _tx_orta(draw, cx: int, y: int, metin: str, font, fill):
     bbox = draw.textbbox((0, 0), metin, font=font)
     w = bbox[2] - bbox[0]
-    _golge_yazi(draw, (cx - w // 2, y), metin, font, fill)
+    _tx(draw, (cx - w // 2, y), metin, font, fill)
 
 
-def _yazi_sag(draw, sag_x: int, cy: int, metin: str, font, fill):
+def _tx_sag(draw, sag_x: int, cy: int, metin: str, font, fill):
     bbox = draw.textbbox((0, 0), metin, font=font)
     w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    _golge_yazi(draw, (sag_x - w, cy - h // 2), metin, font, fill)
+    _tx(draw, (sag_x - w, cy - h // 2), metin, font, fill)
 
 
 async def siralama_gorseli_olustur(bot, satirlar: list) -> io.BytesIO:
-    """
-    satirlar: asyncpg.Record veya dict — discord_id, username, bakiye
-    """
     w, h = GENISLIK, YUKSEKLIK
     arka = _arka_hazirla(w, h)
-    arka = _okunaklik_katmani(arka)
-    canvas = arka.copy()
-    draw = ImageDraw.Draw(canvas)
+    arka = _film_arka(arka)
+    im = arka.copy()
+    draw = ImageDraw.Draw(im)
 
-    font_isim_buyuk = _font_isim(18)
-    font_isim_satir = _font_isim(16)
-    font_skor = _font(15, True)
-    font_sira = _font(16, True)
-
-    renk_isim = (248, 248, 255, 255)
-    renk_skor = (255, 215, 100, 255)
-    renk_sira = (200, 205, 230, 255)
-
-    # ── Üst 3: kartlar ─────────────────────────────────────
-    gap = 14
-    ust_y = 16
-    kart_h = 172
-    ic = w - 2 * MARGIN
-    kart_w = (ic - 2 * gap) // 3
-
-    kenarlar = [
-        (218, 165, 32, 255),
-        (192, 192, 210, 255),
-        (205, 127, 50, 255),
-    ]
+    f_baslik = _font(FONT_KALIN, 11)
+    f_podyum_isim = _font(FONT_ISIM_YOLLARI, 13)
+    f_podyum_skor = _font(FONT_KALIN, 12)
+    f_satir_isim = _font(FONT_ISIM_YOLLARI, 13)
+    f_satir_skor = _font(FONT_KALIN, 12)
+    f_sira = _font(FONT_KALIN, 12)
 
     async def avatar_url(uid: int) -> str:
         try:
@@ -224,94 +201,125 @@ async def siralama_gorseli_olustur(bot, satirlar: list) -> io.BytesIO:
     uids = [int(satirlar[i]["discord_id"]) for i in range(n)]
     urls = await asyncio.gather(*[avatar_url(uid) for uid in uids])
 
+    # Üst başlık
+    baslik = "M2B COIN · TOP 10"
+    bbox = draw.textbbox((0, 0), baslik, font=f_baslik)
+    bw = bbox[2] - bbox[0]
+    _tx(draw, ((w - bw) // 2, 10), baslik, f_baslik, (*C_SOLUK, 255))
+
+    ic = w - 2 * MARGIN
+    kart_w = (ic - 2 * PODYUM_GAP) // 3
+    y0 = UST_BASLIK_H
+    vurgu = [C_ALTIN, C_GUM, C_BRONZ]
+
     for i in range(min(3, n)):
-        x0 = MARGIN + i * (kart_w + gap)
-        y0 = ust_y
-        ic_renk = kenarlar[i]
+        x0 = MARGIN + i * (kart_w + PODYUM_GAP)
+        # İnce üst şerit (sıra vurgusu)
         draw.rounded_rectangle(
-            [x0, y0, x0 + kart_w, y0 + kart_h],
-            radius=16,
-            fill=(18, 16, 32, 230),
-            outline=ic_renk,
-            width=3,
+            [x0, y0, x0 + kart_w, y0 + PODYUM_KART_H],
+            radius=10,
+            fill=(*C_YUZEY, 245),
+            outline=(*C_KENAR, 200),
+            width=1,
+        )
+        draw.rounded_rectangle(
+            [x0, y0, x0 + kart_w, y0 + 3],
+            radius=10,
+            fill=(*vurgu[i], 255),
         )
         cx = x0 + kart_w // 2
-        r = 40 if i == 0 else 34 if i == 1 else 30
-        boyut = r * 2
+        r_av = 24 if i == 0 else 22 if i == 1 else 20
+        boyut = r_av * 2
+        ay = y0 + 14
         av = await _indir(urls[i], (boyut, boyut))
-        ay = y0 + 28
         if av:
-            maske = _yuvarlak_maske(boyut)
+            m = _yuvarlak_maske(boyut)
             yuv = Image.new("RGBA", (boyut, boyut), (0, 0, 0, 0))
-            yuv.paste(av, (0, 0), maske)
-            canvas.paste(yuv, (cx - r, ay), yuv)
+            yuv.paste(av, (0, 0), m)
+            im.paste(yuv, (cx - r_av, ay), yuv)
         else:
-            draw.ellipse([cx - r, ay, cx + r, ay + r * 2], fill=(55, 55, 75, 240))
+            draw.ellipse([cx - r_av, ay, cx + r_av, ay + boyut], fill=(*C_YUZEY2, 255))
+        draw.ellipse(
+            [cx - r_av - 1, ay - 1, cx + r_av + 1, ay + boyut + 1],
+            outline=(*vurgu[i], 180),
+            width=1,
+        )
 
-        isim = _metin_guvenli(str(satirlar[i]["username"]), 16)
+        isim = _metin_guvenli(str(satirlar[i]["username"]), 14)
         skor = f"{int(satirlar[i]['bakiye']):,}"
-        iy = ay + boyut + 10
-        _yazi_orta_x(draw, cx, iy, isim, font_isim_buyuk, renk_isim)
-        sy = iy + 26
-        _yazi_orta_x(draw, cx, sy, skor, font_skor, renk_skor)
+        iy = ay + boyut + 6
+        _tx_orta(draw, cx, iy, isim, f_podyum_isim, (*C_METIN, 255))
+        _tx_orta(draw, cx, iy + 17, skor, f_podyum_skor, (*C_ALTIN, 255))
 
-    # ── 4–10: satırlar (tek tutarlı grid) ───────────────────
-    y_liste = ust_y + kart_h + 20
-    sol_ic = MARGIN + 12
-    rank_col_w = 44
-    av_r = 18
-    av_x0 = sol_ic + rank_col_w + 8
-    isim_x0 = av_x0 + av_r * 2 + 14
-    sag_kenar = w - MARGIN - 16
-    max_isim_w = sag_kenar - isim_x0 - 12
+    y_liste = y0 + PODYUM_KART_H + 12
+    sol_pad = MARGIN + 10
+    rank_w = 36
+    av_r = 15
+    av_x0 = sol_pad + rank_w + 6
+    isim_x = av_x0 + av_r * 2 + 10
+    sag_x = w - MARGIN - 12
+    max_isim = sag_x - isim_x - 56
 
     for j in range(3, n):
         idx = j - 3
         row = satirlar[j]
-        ry = y_liste + idx * (SATIR_YUKSEKLIK + SATIR_ARALIK)
-        rx1, ry1 = MARGIN, ry
-        rx2, ry2 = w - MARGIN, ry + SATIR_YUKSEKLIK
+        ry = y_liste + idx * (LISTE_SATIR_H + LISTE_GAP)
+        zeb = idx % 2
+        yuz = C_YUZEY if zeb == 0 else C_YUZEY2
 
         draw.rounded_rectangle(
-            [rx1, ry1, rx2, ry2],
-            radius=12,
-            fill=(16, 18, 38, 235),
-            outline=(80, 70, 120, 180),
+            [MARGIN, ry, w - MARGIN, ry + LISTE_SATIR_H],
+            radius=8,
+            fill=(*yuz, 238),
+            outline=(*C_KENAR, 120),
             width=1,
         )
 
         rno = str(j + 1)
-        bbox = draw.textbbox((0, 0), rno, font=font_sira)
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-        rcx = sol_ic + (rank_col_w - tw) // 2
-        rcy = ry + (SATIR_YUKSEKLIK - th) // 2
-        _golge_yazi(draw, (rcx, rcy), rno, font_sira, renk_sira)
+        bb = draw.textbbox((0, 0), rno, font=f_sira)
+        tw, th = bb[2] - bb[0], bb[3] - bb[1]
+        rcx = sol_pad + (rank_w - tw) // 2
+        rcy = ry + (LISTE_SATIR_H - th) // 2
+        _tx(draw, (rcx, rcy), rno, f_sira, (*C_SOLUK, 255))
 
         cx = av_x0 + av_r
-        cy = ry + SATIR_YUKSEKLIK // 2
-        boyut = av_r * 2
-        av = await _indir(urls[j], (boyut, boyut))
+        cy = ry + LISTE_SATIR_H // 2
+        b = av_r * 2
+        av = await _indir(urls[j], (b, b))
         if av:
-            maske = _yuvarlak_maske(boyut)
-            yuv = Image.new("RGBA", (boyut, boyut), (0, 0, 0, 0))
-            yuv.paste(av, (0, 0), maske)
-            canvas.paste(yuv, (cx - av_r, cy - av_r), yuv)
+            m = _yuvarlak_maske(b)
+            yuv = Image.new("RGBA", (b, b), (0, 0, 0, 0))
+            yuv.paste(av, (0, 0), m)
+            im.paste(yuv, (cx - av_r, cy - av_r), yuv)
         else:
-            draw.ellipse([cx - av_r, cy - av_r, cx + av_r, cy + av_r], fill=(60, 60, 85, 255))
+            draw.ellipse([cx - av_r, cy - av_r, cx + av_r, cy + av_r], fill=(*C_KENAR, 200))
 
-        isim = _metin_guvenli(str(row["username"]), 48)
-        isim = _kisalt_genislik(draw, font_isim_satir, isim, max_isim_w)
-        bbox_i = draw.textbbox((0, 0), isim, font=font_isim_satir)
-        ih = bbox_i[3] - bbox_i[1]
-        iy = ry + (SATIR_YUKSEKLIK - ih) // 2
-        _golge_yazi(draw, (isim_x0, iy), isim, font_isim_satir, renk_isim)
+        isim = _metin_guvenli(str(row["username"]), 40)
+        isim = _kisalt_genislik(draw, f_satir_isim, isim, max_isim)
+        bb_i = draw.textbbox((0, 0), isim, font=f_satir_isim)
+        ih = bb_i[3] - bb_i[1]
+        iy = ry + (LISTE_SATIR_H - ih) // 2
+        _tx(draw, (isim_x, iy), isim, f_satir_isim, (*C_METIN, 255))
 
         skor = f"{int(row['bakiye']):,}"
-        _yazi_sag(draw, sag_kenar, cy, skor, font_skor, renk_skor)
+        # Skor: küçük “chip” arka planı
+        sw = draw.textbbox((0, 0), skor, font=f_satir_skor)[2] - draw.textbbox((0, 0), skor, font=f_satir_skor)[0]
+        chip_pad = 6
+        chip_x1 = sag_x - sw - chip_pad * 2
+        chip_y1 = ry + (LISTE_SATIR_H - 22) // 2
+        chip_x2 = sag_x
+        chip_y2 = chip_y1 + 22
+        draw.rounded_rectangle(
+            [chip_x1, chip_y1, chip_x2, chip_y2],
+            radius=6,
+            fill=(15, 23, 42, 200),
+            outline=(*C_KENAR, 100),
+            width=1,
+        )
+        _tx_sag(draw, sag_x - chip_pad, cy, skor, f_satir_skor, (*C_ALTIN, 255))
 
     buf = io.BytesIO()
-    canvas.convert("RGB").save(buf, format="PNG", optimize=True)
+    im.convert("RGB").save(buf, format="PNG", optimize=True)
     buf.seek(0)
-    log.info("Sıralama görseli (tam çizim v%s, kullanıcı=%s)", GORSEL_SURUM, n)
+    log.info("Sıralama görseli (UI v%s, kullanıcı=%s)", GORSEL_SURUM, n)
     return buf
