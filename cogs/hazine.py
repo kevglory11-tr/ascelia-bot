@@ -25,9 +25,9 @@ class HazineCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot              = bot
         self.aktif_mesaj      = None
-        self.kalan_sure       = 0       # asyncio.sleep'e kalan saniye
-        self.indirilen_toplam = 0       # toplam indirim (max 1800sn = 30dk)
-        self.unique_yazanlar  = set()   # mevcut eşikte yazan farklı kullanıcılar
+        self.kalan_sure       = 0
+        self.indirilen_toplam = 0
+        self.unique_yazanlar  = set()
         self.bot.loop.create_task(self._dongu())
 
     async def _dongu(self):
@@ -81,7 +81,7 @@ class HazineCog(commands.Cog):
                     dosya = discord.File(f, filename="sandik_kapali.jpg")
                     embed.set_image(url="attachment://sandik_kapali.jpg")
                     mesaj = await kanal.send(file=dosya, embed=embed)
-                break  # başarılı, döngüden çık
+                break
             except discord.errors.DiscordServerError as e:
                 log.warning(f"Discord 503, {deneme+1}. deneme: {e}")
                 if deneme < 2:
@@ -110,13 +110,16 @@ class HazineCog(commands.Cog):
             log.error(f"Hazine gönderilemedi: {e}", exc_info=True)
 
     @commands.Cog.listener()
-    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
-        if user.bot or not self.aktif_mesaj:
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        if payload.user_id == self.bot.user.id or not self.aktif_mesaj:
             return
-        if reaction.message.id != self.aktif_mesaj.id:
+        if payload.message_id != self.aktif_mesaj.id:
             return
-        if str(reaction.emoji) != HAZINE_EMOJI:
+        if str(payload.emoji) != HAZINE_EMOJI:
             return
+
+        guild = self.bot.get_guild(payload.guild_id)
+        user = guild.get_member(payload.user_id)
 
         mesaj            = self.aktif_mesaj
         self.aktif_mesaj = None
@@ -155,20 +158,19 @@ class HazineCog(commands.Cog):
     async def on_message(self, message: discord.Message):
         if message.author.bot or self.kalan_sure <= 0:
             return
-        if self.indirilen_toplam >= 1800:  # 30 dakika max
+        if self.indirilen_toplam >= 1800:
             return
 
         self.unique_yazanlar.add(message.author.id)
 
-        # Her 5 farklı kullanıcıda bir indirim yap
         if len(self.unique_yazanlar) >= 5:
-            indirim = random.randint(300, 600)  # 5-10 dakika
+            indirim = random.randint(300, 600)
             kalan_indirilebilir = 1800 - self.indirilen_toplam
             indirim = min(indirim, kalan_indirilebilir, self.kalan_sure - 10)
             if indirim > 0:
                 self.kalan_sure       -= indirim
                 self.indirilen_toplam += indirim
-                self.unique_yazanlar  = set()  # sayacı sıfırla
+                self.unique_yazanlar  = set()
                 log.info(
                     f"Hazine {indirim//60}dk erken gelecek! "
                     f"(Toplam indirim: {self.indirilen_toplam//60}dk, "
