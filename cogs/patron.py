@@ -132,7 +132,7 @@ class PatronCog(commands.Cog):
 
         log.info(f"Patron doğdu: {patron_id[:8]}")
 
-        # 30 dakika bekle → süre dolunca bitir
+        # Süre dolunca bitir
         await asyncio.sleep(PATRON_SURE_DK * 60)
         if self.aktif_patron and self.aktif_patron["patron_id"] == patron_id:
             await self._patron_bitis(kacan=True)
@@ -206,7 +206,7 @@ class PatronCog(commands.Cog):
             hasar_aciklama = f"⚔️ **Hasar:** -{hasar}"
 
         # Saldırı görseli oluştur (asyncio executor ile bloklamayı önle)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         buf  = await loop.run_in_executor(None, patron_gorseli_olustur,
                                           hp_simdi, max_hp_simdi, hasar, crit,
                                           guclu_darbe, crit_hasar,
@@ -372,12 +372,13 @@ class PatronCog(commands.Cog):
 
     # ── Yardımcı: hafta numarası (TR saatiyle ISO) ───────────────
     def _hafta_no(self, dt: datetime = None) -> str:
+        """Örnek çıktı: '2026-14'  (SQL TO_CHAR IYYY-IW ile uyumlu)"""
         TR_OFFSET = timedelta(hours=3)
         if dt is None:
             dt = datetime.now(timezone.utc)
         tr_zaman = dt + TR_OFFSET
         iso = tr_zaman.isocalendar()
-        return f"{iso[0]}-W{iso[1]:02d}"
+        return f"{iso[0]}-{iso[1]:02d}"
 
     # ── Yardımcı: baskın hasar listesi metni ─────────────────────
     def _hasar_listesi(self, siralama, guild) -> str:
@@ -548,6 +549,34 @@ class PatronCog(commands.Cog):
                     f"(Toplam indirim: {self.indirilen_toplam//3600}s {(self.indirilen_toplam%3600)//60}dk, "
                     f"Kalan: {self.kalan_sure//3600}s {(self.kalan_sure%3600)//60}dk)"
                 )
+
+    # ── /patron-sıralama ─────────────────────────────────────────
+    @app_commands.command(name="patron-sıralama", description="Bu haftaki patron hasar sıralamasını gör.")
+    async def patron_siralama(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        hafta_no = self._hafta_no()
+        siralama = await database.patron_haftalik_siralama(hafta_no, limit=10)
+
+        embed = discord.Embed(
+            title="📊 Haftalık Patron Sıralaması",
+            color=0xCC0000,
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+
+        if not siralama:
+            embed.description = "Bu hafta henüz kimse patrona saldırmadı!"
+        else:
+            liste = self._haftalik_liste(siralama, interaction.guild)
+            embed.description = liste
+            embed.add_field(
+                name="🏆 Haftalık Ödüller",
+                value=f"🥇 1. → 3 {GEM}  ·  🥈 2. → 2 {GEM}  ·  🥉 3. → 1 {GEM}",
+                inline=False,
+            )
+
+        embed.set_footer(text=f"Hafta: {hafta_no} • Ödüller Pazartesi 00:00 TR'de dağıtılır.")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /patron-durum ────────────────────────────────────────────
     @app_commands.command(name="patron-durum", description="Aktif patronun durumunu göster.")
