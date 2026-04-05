@@ -101,16 +101,24 @@ class PerkSatinAlButon(discord.ui.Button):
             label=f"{perk['isim']} ({perk['maliyet']} {GEM})",
             style=discord.ButtonStyle.primary,
             custom_id=f"perk_{perk_id}",
-            emoji=GEM,
         )
         self.perk_id = perk_id
         self.perk    = perk
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         pid   = self.perk_id
         perk  = self.perk
         uid   = interaction.user.id
+
+        # Perk ikonunu dosya olarak hazırla
+        ikon_yolu = os.path.join(_ASSETS, perk["ikon"])
+        ikon_dosya = None
+        ikon_url   = None
+        if os.path.exists(ikon_yolu):
+            ikon_dosya = discord.File(ikon_yolu, filename=perk["ikon"])
+            ikon_url   = f"attachment://{perk['ikon']}"
+
+        await interaction.response.defer(ephemeral=True)
 
         # Limit kontrolü
         if perk["limit_turu"] == "haftalik":
@@ -168,10 +176,22 @@ class PerkSatinAlButon(discord.ui.Button):
             extra = ""
 
         yeni_bakiye = await database.get_gem_bakiye(uid)
-        await interaction.followup.send(
-            f"{OK} **{perk['isim']}** satın alındı!{sure_txt}{extra}\n"
-            f"Kalan Gem: **{yeni_bakiye} {GEM}**",
-            ephemeral=True)
+
+        embed = discord.Embed(
+            title=f"{OK} {perk['isim']} Satın Alındı!",
+            description=(
+                f"{perk['aciklama']}{sure_txt}{extra}\n\n"
+                f"Kalan Gem: **{yeni_bakiye} {GEM}**"
+            ),
+            color=0x7B2FBE,
+        )
+        if ikon_url:
+            embed.set_thumbnail(url=ikon_url)
+
+        if ikon_dosya:
+            await interaction.followup.send(embed=embed, file=ikon_dosya, ephemeral=True)
+        else:
+            await interaction.followup.send(embed=embed, ephemeral=True)
         log.info(f"Perk satın alındı: {interaction.user} → {pid}")
 
 
@@ -244,14 +264,42 @@ class GemMagazaCog(commands.Cog):
         patron_btn = discord.ui.Button(label="Patron Perkleri", style=discord.ButtonStyle.danger, emoji="⚔️")
 
         async def genel_cb(i: discord.Interaction):
-            await i.response.send_message(
-                f"{GEM} **Genel Perkler** — Gem bakiyen: **{await database.get_gem_bakiye(i.user.id)}**",
-                view=GemMagazaView("genel"), ephemeral=True)
+            bakiye = await database.get_gem_bakiye(i.user.id)
+            e = discord.Embed(
+                title=f"🌟 Genel Perkler",
+                description=f"{GEM} Gem bakiyen: **{bakiye}**\nSatın almak istediğin perki seç:",
+                color=0x2ECC71,
+            )
+            for pid, p in PERKLER.items():
+                if not p["patron"]:
+                    limit = "Haftada 1" if p["limit_turu"] == "haftalik" else "Günde 1"
+                    e.add_field(
+                        name=f"{p['isim']} — {p['maliyet']} {GEM}",
+                        value=f"> {p['aciklama']}\n> *{limit}*",
+                        inline=False,
+                    )
+            await i.response.send_message(embed=e, view=GemMagazaView("genel"), ephemeral=True)
 
         async def patron_cb(i: discord.Interaction):
-            await i.response.send_message(
-                f"{GEM} **Patron Perkleri** — Gem bakiyen: **{await database.get_gem_bakiye(i.user.id)}**",
-                view=GemMagazaView("patron"), ephemeral=True)
+            bakiye = await database.get_gem_bakiye(i.user.id)
+            e = discord.Embed(
+                title=f"⚔️ Patron Perkleri",
+                description=f"{GEM} Gem bakiyen: **{bakiye}**\nSatın almak istediğin perki seç:",
+                color=0xCC0000,
+            )
+            for pid, p in PERKLER.items():
+                if p["patron"]:
+                    e.add_field(
+                        name=f"{p['isim']} — {p['maliyet']} {GEM}",
+                        value=f"> {p['aciklama']}\n> *Günde 1*",
+                        inline=False,
+                    )
+            try:
+                patron_dosya = discord.File(os.path.join(_ASSETS, "patron.png"), filename="patron.png")
+                e.set_thumbnail(url="attachment://patron.png")
+                await i.response.send_message(embed=e, file=patron_dosya, view=GemMagazaView("patron"), ephemeral=True)
+            except Exception:
+                await i.response.send_message(embed=e, view=GemMagazaView("patron"), ephemeral=True)
 
         genel_btn.callback  = genel_cb
         patron_btn.callback = patron_cb
