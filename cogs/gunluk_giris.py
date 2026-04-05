@@ -94,7 +94,7 @@ class GunlukGirisCog(commands.Cog):
                 color=0x2ECC71,
             )
             embed.set_thumbnail(url=interaction.user.display_avatar.url)
-            embed.set_footer(text="/bakiye · /market")
+            embed.set_footer(text="/bakiye · /market · /günlük-görev · /gem-mağaza")
             await interaction.followup.send(embed=embed)
             log.info(f"Günlük: {interaction.user} → +{toplam} coin (seri: {yeni_seri})")
 
