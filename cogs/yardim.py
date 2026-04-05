@@ -109,7 +109,8 @@ class YardimCog(commands.Cog, name="Yardım"):
             value=(
                 "> <:dot4:1478383949620449290> Patron günde 1 kez belirir — saldır, hasar ver!\n"
                 "> <:dot4:1478383949620449290> Her hafta en çok hasar veren **top 3** Pazartesi **Gem** ödülü alır\n"
-                "> <:dot4:1478383949620449290> `/patron-durum` — Aktif patronun HP ve süresini gör"
+                "> <:dot4:1478383949620449290> `/patron-durum` — Aktif patronun HP ve süresini gör\n"
+                "> <:dot4:1478383949620449290> `/patron-sıralama` — Bu haftaki hasar sıralamasını gör"
             ),
             inline=False,
         )
