@@ -273,9 +273,14 @@ class GunlukGorevCog(commands.Cog):
                     tarih        TEXT NOT NULL,
                     kanit        TEXT,
                     odul         INT  DEFAULT 0,
+                    ek_gorev     BOOLEAN DEFAULT FALSE,
                     created_at   TIMESTAMP DEFAULT NOW()
                 )
             """)
+            # Mevcut tabloya ek_gorev kolonu ekle (varsa atla)
+            await conn.execute(
+                "ALTER TABLE gunluk_gorev_log ADD COLUMN IF NOT EXISTS ek_gorev BOOLEAN DEFAULT FALSE"
+            )
         log.info("Günlük görev tablosu hazır.")
 
     # ── Event: mesaj ──────────────────────────────────────────
