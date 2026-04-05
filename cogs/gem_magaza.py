@@ -23,7 +23,7 @@ PERKLER = {
     "gunluk_gorev_yenile": {
         "isim":      "Görev Yenile",
         "aciklama":  "Bugünkü günlük görevini değiştirir.",
-        "maliyet":   5,
+        "maliyet":   10,
         "limit_turu": "haftalik",
         "sure_gun":  0,
         "patron":    False,
@@ -33,7 +33,7 @@ PERKLER = {
     "gunluk_gorev_satin_al": {
         "isim":      "Ek Görev Hakkı",
         "aciklama":  "Bugün için 1 ekstra görev hakkı kazanırsın.",
-        "maliyet":   8,
+        "maliyet":   15,
         "limit_turu": "haftalik",
         "sure_gun":  0,
         "patron":    False,
@@ -43,7 +43,7 @@ PERKLER = {
     "giris_takviyesi": {
         "isim":      "Giriş Takviyesi",
         "aciklama":  "3 gün boyunca günlük girişe +5 Coin bonus.",
-        "maliyet":   4,
+        "maliyet":   8,
         "limit_turu": "haftalik",
         "sure_gun":  3,
         "patron":    False,
@@ -53,7 +53,7 @@ PERKLER = {
     "gorev_takviyesi": {
         "isim":      "Görev Takviyesi",
         "aciklama":  "3 gün boyunca görev ödülüne +10 Coin (MP kuponu hariç).",
-        "maliyet":   5,
+        "maliyet":   10,
         "limit_turu": "haftalik",
         "sure_gun":  3,
         "patron":    False,
@@ -63,7 +63,7 @@ PERKLER = {
     "patron_guclu_darbe": {
         "isim":      "Güçlü Darbe",
         "aciklama":  "Patron saldırısında +8 flat hasar.",
-        "maliyet":   3,
+        "maliyet":   5,
         "limit_turu": "gunluk",
         "sure_gun":  0,
         "patron":    True,
@@ -73,7 +73,7 @@ PERKLER = {
     "patron_kritik_sans": {
         "isim":      "Kritik Şans",
         "aciklama":  "%8 ekstra kritik vuruş ihtimali.",
-        "maliyet":   3,
+        "maliyet":   5,
         "limit_turu": "gunluk",
         "sure_gun":  0,
         "patron":    True,
@@ -83,7 +83,7 @@ PERKLER = {
     "patron_kritik_hasar": {
         "isim":      "Kritik Hasar",
         "aciklama":  "Kritik vuruşlarda ×1.15 ekstra hasar.",
-        "maliyet":   3,
+        "maliyet":   5,
         "limit_turu": "gunluk",
         "sure_gun":  0,
         "patron":    True,
@@ -93,7 +93,7 @@ PERKLER = {
     "patron_ekstra_saldiri": {
         "isim":      "Ekstra Saldırı",
         "aciklama":  "+1 saldırı hakkı (3 → 4).",
-        "maliyet":   5,
+        "maliyet":   8,
         "limit_turu": "gunluk",
         "sure_gun":  0,
         "patron":    True,
