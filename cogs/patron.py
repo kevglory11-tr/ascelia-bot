@@ -12,7 +12,7 @@ from utils.logger import setup_logger
 from utils.patron_gorseli import patron_gorseli_olustur
 from config.coin_settings import (
     PATRON_KANAL_ID, PATRON_MIN_SAAT, PATRON_MAX_SAAT,
-    PATRON_HP, PATRON_SURE_DK, PATRON_MAX_SALDIRI,
+    PATRON_HP, PATRON_HP_SCALING, PATRON_SURE_DK, PATRON_MAX_SALDIRI,
     PATRON_HASAR_MIN, PATRON_HASAR_MAX, BILDIRIM_KANAL_ID,
     PATRON_MAX_INDIRIM_SN, PATRON_INDIRIM_ESIK,
 )
@@ -46,6 +46,7 @@ class PatronCog(commands.Cog):
         self.bot              = bot
         self.aktif_patron     = None   # {"mesaj", "patron_id", "bitis", "katilimcilar": {uid: hasar}}
         self.patron_hp        = 0
+        self.patron_max_hp    = 0      # Scaling ile büyüyen max HP
         self.kalan_sure       = 0
         self.indirilen_toplam = 0
         self.unique_yazanlar  = set()
@@ -91,15 +92,17 @@ class PatronCog(commands.Cog):
                 log.error(f"Patron kanalı fetch edilemedi: {e}")
                 return
 
-        patron_id    = str(uuid.uuid4())
-        self.patron_hp = PATRON_HP
-        bitis_zamani = datetime.now(timezone.utc) + timedelta(minutes=PATRON_SURE_DK)
+        patron_id          = str(uuid.uuid4())
+        self.patron_hp     = PATRON_HP
+        self.patron_max_hp = PATRON_HP
+        bitis_zamani       = datetime.now(timezone.utc) + timedelta(minutes=PATRON_SURE_DK)
 
         embed = discord.Embed(
             title="👹 Bir Patron Belirdi!",
             description=(
                 f"Güçlü bir patron sunucuya saldırıyor!\n\n"
-                f"❤️ **Can:** {self._hp_bar(PATRON_HP, PATRON_HP)} `{PATRON_HP}/{PATRON_HP}`\n\n"
+                f"❤️ **Can:** {self._hp_bar(PATRON_HP, PATRON_HP)} `{PATRON_HP}/{PATRON_HP}`\n"
+                f"⚠️ *Her yeni saldıran +{PATRON_HP_SCALING} HP ekler!*\n\n"
                 f"**⚔️ Saldırı hakkın:** {PATRON_MAX_SALDIRI}\n"
                 f"**⏳ Süre:** {PATRON_SURE_DK} dakika\n\n"
                 f"Aşağıdaki butona tıklayarak patrona saldır!\n"
@@ -167,12 +170,18 @@ class PatronCog(commands.Cog):
                 await interaction.followup.send(f"{FAIL_EMO} Patron zaten yenildi!", ephemeral=True)
                 return
 
+            # HP Scaling: ilk saldırıda patron güçlenir
+            ilk_saldiri = uid not in self.aktif_patron["katilimcilar"]
+            if ilk_saldiri:
+                self.patron_hp     += PATRON_HP_SCALING
+                self.patron_max_hp += PATRON_HP_SCALING
+                self.aktif_patron["katilimcilar"][uid] = 0
+
             self.patron_hp -= hasar
-            hp_simdi = max(0, self.patron_hp)
+            hp_simdi        = max(0, self.patron_hp)
+            max_hp_simdi    = self.patron_max_hp
 
             # Katılımcı kaydı (in-memory)
-            if uid not in self.aktif_patron["katilimcilar"]:
-                self.aktif_patron["katilimcilar"][uid] = 0
             self.aktif_patron["katilimcilar"][uid] += hasar
 
         # DB'ye kaydet
@@ -198,17 +207,19 @@ class PatronCog(commands.Cog):
         # Saldırı görseli oluştur (asyncio executor ile bloklamayı önle)
         loop = asyncio.get_event_loop()
         buf  = await loop.run_in_executor(None, patron_gorseli_olustur,
-                                          hp_simdi, PATRON_HP, hasar, crit,
+                                          hp_simdi, max_hp_simdi, hasar, crit,
                                           guclu_darbe, crit_hasar,
                                           interaction.user.display_name)
 
         dosya = discord.File(buf, filename="saldiri.png")
+        scaling_satir = f"\n⚠️ *İlk saldırın — Patron +{PATRON_HP_SCALING} HP kazandı!*" if ilk_saldiri else ""
         embed = discord.Embed(
             title=f"{SWORD} Saldırı!",
             description=(
                 f"{hasar_aciklama}\n"
-                f"❤️ Patron canı: **{hp_simdi}/{PATRON_HP}**\n"
+                f"❤️ Patron canı: **{hp_simdi}/{max_hp_simdi}**\n"
                 f"Kalan saldırı hakkın: **{kalan_hak}**"
+                f"{scaling_satir}"
             ),
             color=0xFF0000 if crit else 0xCC4400,
         )
@@ -230,7 +241,7 @@ class PatronCog(commands.Cog):
         if guclu:
             base += 8
 
-        crit_rate = 0.08 if await database.perk_gunluk_limit_kontrol(discord_id, "patron_kritik_sans") else 0.0
+        crit_rate = 0.25 if await database.perk_gunluk_limit_kontrol(discord_id, "patron_kritik_sans") else 0.0
         crit      = random.random() < crit_rate
 
         if crit:
@@ -258,7 +269,7 @@ class PatronCog(commands.Cog):
                 if "❤️ **Can:**" in line:
                     desc = desc.replace(
                         line,
-                        f"❤️ **Can:** {self._hp_bar(hp, PATRON_HP)} `{hp}/{PATRON_HP}`"
+                        f"❤️ **Can:** {self._hp_bar(hp, self.patron_max_hp)} `{hp}/{self.patron_max_hp}`"
                     )
                     break
             yeni_embed.description = desc
@@ -416,7 +427,7 @@ class PatronCog(commands.Cog):
         embed = discord.Embed(
             title="👹 Patron Durumu",
             description=(
-                f"❤️ **Can:** {self._hp_bar(hp, PATRON_HP)} `{hp}/{PATRON_HP}`\n"
+                f"❤️ **Can:** {self._hp_bar(hp, self.patron_max_hp)} `{hp}/{self.patron_max_hp}`\n"
                 f"⏳ **Kalan süre:** {kalan} dakika\n"
                 f"👥 **Katılımcı:** {katilimci} kişi"
             ),
