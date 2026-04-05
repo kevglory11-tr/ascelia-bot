@@ -166,11 +166,12 @@ class PerkSatinAlButon(discord.ui.Button):
         else:
             sure_txt = ""
 
-        # Görev Yenile — anlık etki (in-memory tracker'ı sıfırla)
+        # Görev Yenile — anlık etki (in-memory tracker'ı sıfırla + yenileme sayacını artır)
         if pid == "gunluk_gorev_yenile":
-            from cogs.gunluk_gorev import _tracker, _son_gun
+            from cogs.gunluk_gorev import _tracker, _yenileme
             if interaction.user.id in _tracker:
                 del _tracker[interaction.user.id]
+            _yenileme[interaction.user.id] = _yenileme.get(interaction.user.id, 0) + 1
             extra = "\n🔄 Günlük görevin yenilendi! `/günlük-görev` ile yeni görevini al."
         else:
             extra = ""
@@ -218,6 +219,14 @@ class GemMagazaCog(commands.Cog):
         perkler = await database.get_tum_aktif_perkler(uid)
         aktif_ids = {r["perk_id"] for r in perkler}
 
+        # Her perk için satın alma durumunu önceden topla (async)
+        limit_durum: dict[str, bool] = {}
+        for pid, perk in PERKLER.items():
+            if perk["limit_turu"] == "haftalik":
+                limit_durum[pid] = await database.perk_haftalik_limit_kontrol(uid, pid)
+            else:
+                limit_durum[pid] = await database.perk_gunluk_limit_kontrol(uid, pid)
+
         embed = discord.Embed(
             title=f"{GEM} Gem Mağazası",
             description=(
@@ -233,11 +242,12 @@ class GemMagazaCog(commands.Cog):
         for pid, perk in PERKLER.items():
             if perk["patron"]:
                 continue
-            durum = "✅ Aktif" if pid in aktif_ids else (
-                "⏳ Bu hafta alındı" if (
-                    perk["limit_turu"] == "haftalik"
-                ) else ""
-            )
+            if pid in aktif_ids:
+                durum = "✅ Aktif"
+            elif limit_durum.get(pid):
+                durum = "⏳ Bu hafta alındı" if perk["limit_turu"] == "haftalik" else "⏳ Bugün alındı"
+            else:
+                durum = ""
             limit = "Haftada 1" if perk["limit_turu"] == "haftalik" else "Günde 1"
             genel_txt += f"**{perk['isim']}** — {perk['maliyet']} {GEM}\n"
             genel_txt += f"> {perk['aciklama']}\n"
@@ -249,10 +259,13 @@ class GemMagazaCog(commands.Cog):
         for pid, perk in PERKLER.items():
             if not perk["patron"]:
                 continue
-            limit = "Günde 1"
+            if limit_durum.get(pid):
+                durum = "⏳ Bugün alındı"
+            else:
+                durum = ""
             patron_txt += f"**{perk['isim']}** — {perk['maliyet']} {GEM}\n"
             patron_txt += f"> {perk['aciklama']}\n"
-            patron_txt += f"> *{limit}*\n\n"
+            patron_txt += f"> *Günde 1* {durum}\n\n"
         embed.add_field(name="⚔️ Patron Perkleri", value=patron_txt or "—", inline=False)
 
         embed.set_footer(text=f"/gem-al ile Coin → Gem dönüştür • /perklerim ile aktif perklerini gör")
