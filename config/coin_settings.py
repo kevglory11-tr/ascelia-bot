@@ -20,3 +20,25 @@ MARKET_URUNLER = [
     {"id": "mp_400", "isim": "🎟️ 400 MP Kuponu", "fiyat": 2000},
     {"id": "mp_500", "isim": "🎟️ 500 MP Kuponu", "fiyat": 2500},
 ]
+
+# ── Gem Sistemi ───────────────────────────────────────────
+GEM_COIN_KURU     = 200   # 1 Gem = 200 Coin
+
+# ── Patron ────────────────────────────────────────────────
+PATRON_KANAL_ID   = int(os.getenv("PATRON_KANAL_ID", "0"))
+PATRON_MIN_SAAT   = 1
+PATRON_MAX_SAAT   = 5
+PATRON_HP         = 800
+PATRON_SURE_DK    = 30
+PATRON_MAX_SALDIRI = 3
+PATRON_HASAR_MIN  = 20
+PATRON_HASAR_MAX  = 80
+
+# ── Bildirim Kanalı ───────────────────────────────────────
+BILDIRIM_KANAL_ID = int(os.getenv("BILDIRIM_KANAL_ID", "0"))
+
+# ── Görev Rolleri ─────────────────────────────────────────
+ROL_VANGUARD_ID   = int(os.getenv("ROL_VANGUARD_ID",  "0"))
+ROL_HARBINGER_ID  = int(os.getenv("ROL_HARBINGER_ID", "0"))
+ROL_SENTINEL_ID   = int(os.getenv("ROL_SENTINEL_ID",  "0"))
+ROL_LUMINARY_ID   = int(os.getenv("ROL_LUMINARY_ID",  "0"))

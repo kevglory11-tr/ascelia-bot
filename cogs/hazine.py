@@ -127,16 +127,33 @@ class HazineCog(commands.Cog):
         coin        = random.randint(HAZINE_MIN_COIN, HAZINE_MAX_COIN)
         yeni_bakiye = await database.add_coins(user.id, user.display_name, coin)
 
+        # Gem drop (%5 → 3 gem, %25 → 1 gem, %70 → yok)
+        gem_drop = 0
+        rng = random.random()
+        if rng < 0.05:
+            gem_drop = 3
+        elif rng < 0.30:
+            gem_drop = 1
+
+        if gem_drop > 0:
+            await database.add_gem(
+                user.id, gem_drop,
+                tip="hazine_drop",
+                aciklama="Hazine avı gem dropu"
+            )
+
         try:
             await mesaj.delete()
         except Exception:
             pass
 
+        gem_satir = f"\n💎 **+{gem_drop} Gem** de düştü! (Şanslısın!)" if gem_drop > 0 else ""
+
         embed = discord.Embed(
             title=f"{OK} Hazine Sandığı Açıldı!",
             description=(
                 f"**M2Board gizemli hazinesinden {coin} {M2B} kazandın,\n"
-                f"baya hızlısın vesselam** {user.mention} 🎊\n\n"
+                f"baya hızlısın vesselam** {user.mention} 🎊{gem_satir}\n\n"
             ),
             color=0xFFD700,
         )
@@ -151,7 +168,7 @@ class HazineCog(commands.Cog):
             embed.set_thumbnail(url=user.display_avatar.url)
             await mesaj.channel.send(embed=embed)
 
-        log.info(f"Hazine: {user} → {coin} coin")
+        log.info(f"Hazine: {user} → {coin} coin" + (f" + {gem_drop} gem" if gem_drop else ""))
 
 
     @commands.Cog.listener()

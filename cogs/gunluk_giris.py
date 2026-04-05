@@ -22,6 +22,15 @@ def _bugun_tr() -> str:
     return (datetime.now(timezone.utc) + TR_OFFSET).strftime("%Y-%m-%d")
 
 
+def _seri_bonusu(seri: int) -> tuple[int, str]:
+    """(bonus_miktar, açıklama) döndürür."""
+    if seri == 7:
+        return 5, "🎉 **1. hafta tamamlandı!** +5 Coin bonus!"
+    elif seri >= 14:
+        return 10, "🏆 **2+ hafta serisi!** +10 Coin bonus!"
+    return 0, ""
+
+
 class GunlukGirisCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -50,27 +59,38 @@ class GunlukGirisCog(commands.Cog):
             coin      = random.randint(GUNLUK_MIN_COIN, GUNLUK_MAX_COIN)
             yeni_seri = await database.set_son_giris(interaction.user.id, bugun)
 
-            # Seri bonusu
-            bonus     = 0
-            seri_mesaj = ""
-            if yeni_seri >= 3:
-                bonus = 10
-                seri_mesaj = f"\n🔥 **{yeni_seri} günlük seri bonusu:** +{bonus} M2B Coin!"
+            # Haftalık seri bonusu
+            seri_bonus, seri_mesaj = _seri_bonusu(yeni_seri)
 
-            toplam      = coin + bonus
+            # Luminary kalıcı bonusu
+            user_row       = await database.get_user(interaction.user.id)
+            luminary_bonus = user_row["luminary_bonus"] if user_row and "luminary_bonus" in user_row.keys() else 0
+
+            # Giriş Takviyesi perki
+            giris_takviyesi = await database.get_aktif_perk(interaction.user.id, "giris_takviyesi")
+            perk_bonus      = 5 if giris_takviyesi else 0
+
+            toplam      = coin + seri_bonus + luminary_bonus + perk_bonus
             yeni_bakiye = await database.add_coins(
                 interaction.user.id, interaction.user.display_name, toplam,
                 aciklama=f"Günlük giriş (seri: {yeni_seri})"
             )
 
+            # Açıklama satırları
+            satirlar = [f"{COIN_ANIM} {interaction.user.mention} **{coin} M2B Coin** kazandı!"]
+            if seri_mesaj:
+                satirlar.append(seri_mesaj)
+            if luminary_bonus > 0:
+                satirlar.append(f"👑 **Luminary bonusu:** +{luminary_bonus} Coin")
+            if perk_bonus > 0:
+                satirlar.append(f"☀️ **Giriş Takviyesi perki:** +{perk_bonus} Coin")
+            satirlar.append(f"\n{M2B} Yeni bakiyen: **{yeni_bakiye:,} M2B Coin**")
+            satirlar.append(f"🔥 Giriş seriniz: **{yeni_seri} gün**")
+            satirlar.append("📅 Yarın tekrar gel!")
+
             embed = discord.Embed(
                 title=f"{OK} Günlük Giriş Ödülü!",
-                description=(
-                    f"{COIN_ANIM} {interaction.user.mention} **{coin} M2B Coin** kazandı!{seri_mesaj}\n\n"
-                    f"{M2B} Yeni bakiyen: **{yeni_bakiye:,} M2B Coin**\n"
-                    f"🔥 Giriş seriniz: **{yeni_seri} gün**\n"
-                    f"📅 Yarın tekrar gel!"
-                ),
+                description="\n".join(satirlar),
                 color=0x2ECC71,
             )
             embed.set_thumbnail(url=interaction.user.display_avatar.url)

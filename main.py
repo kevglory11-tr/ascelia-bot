@@ -36,6 +36,8 @@ COGS = [
 
     "cogs.admin_coin",
     "cogs.gunluk_gorev",
+    "cogs.gem_magaza",
+    "cogs.patron",
     "cogs.skor_tahmin",
     "cogs.atam",
     # ── Ticket komutları ─────────────────────────────────────

@@ -118,6 +118,48 @@ async def _create_tables() -> None:
                 mesaj_id    BIGINT,
                 kapali      BOOLEAN DEFAULT FALSE
             );
+
+            CREATE TABLE IF NOT EXISTS gem_bakiye (
+                discord_id  BIGINT PRIMARY KEY,
+                miktar      INT    DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS gem_log (
+                id          BIGSERIAL    PRIMARY KEY,
+                discord_id  BIGINT       NOT NULL,
+                miktar      INT          NOT NULL,
+                tip         TEXT         NOT NULL,
+                aciklama    TEXT,
+                zaman       TIMESTAMPTZ  DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS aktif_perk (
+                id           SERIAL      PRIMARY KEY,
+                discord_id   BIGINT      NOT NULL,
+                perk_id      TEXT        NOT NULL,
+                bitis_tarihi TIMESTAMPTZ NOT NULL,
+                created_at   TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (discord_id, perk_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS perk_satin_alma (
+                id              BIGSERIAL   PRIMARY KEY,
+                discord_id      BIGINT      NOT NULL,
+                perk_id         TEXT        NOT NULL,
+                tarih           DATE        NOT NULL,
+                hafta_no        TEXT        NOT NULL,
+                satin_alindi_at TIMESTAMPTZ DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS patron_savas (
+                id              BIGSERIAL   PRIMARY KEY,
+                patron_id       TEXT        NOT NULL,
+                discord_id      BIGINT      NOT NULL,
+                toplam_hasar    INT         DEFAULT 0,
+                saldiri_sayisi  INT         DEFAULT 0,
+                zaman           TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (patron_id, discord_id)
+            );
         """)
     log.info("✅ Tablolar hazır.")
 
@@ -151,6 +193,22 @@ async def _migrate() -> None:
         try:
             await conn.execute(
                 "ALTER TABLE mac_bilgi ADD COLUMN IF NOT EXISTS gercek_skor TEXT DEFAULT NULL"
+            )
+        except Exception:
+            pass
+
+        # coins tablosuna luminary_bonus ekle
+        try:
+            await conn.execute(
+                "ALTER TABLE coins ADD COLUMN IF NOT EXISTS luminary_bonus INT DEFAULT 0"
+            )
+        except Exception:
+            pass
+
+        # gunluk_gorev_log tablosuna ek_gorev ekle
+        try:
+            await conn.execute(
+                "ALTER TABLE gunluk_gorev_log ADD COLUMN IF NOT EXISTS ek_gorev BOOLEAN DEFAULT FALSE"
             )
         except Exception:
             pass
@@ -342,6 +400,171 @@ async def update_profil(discord_id: int, **kwargs) -> None:
 
 
 # ── Boost sistemi ─────────────────────────────────────────────────────────────
+
+# ── Gem sistemi ───────────────────────────────────────────────────────────────
+
+async def get_gem_bakiye(discord_id: int) -> int:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT miktar FROM gem_bakiye WHERE discord_id = $1", discord_id)
+        return row["miktar"] if row else 0
+
+
+async def add_gem(discord_id: int, miktar: int, tip: str, aciklama: str = None) -> int:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            INSERT INTO gem_bakiye (discord_id, miktar)
+            VALUES ($1, $2)
+            ON CONFLICT (discord_id) DO UPDATE
+                SET miktar = gem_bakiye.miktar + EXCLUDED.miktar
+            RETURNING miktar
+        """, discord_id, miktar)
+        await conn.execute(
+            "INSERT INTO gem_log (discord_id, miktar, tip, aciklama) VALUES ($1,$2,$3,$4)",
+            discord_id, miktar, tip, aciklama
+        )
+        return row["miktar"]
+
+
+async def remove_gem(discord_id: int, miktar: int, tip: str, aciklama: str = None) -> bool:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT miktar FROM gem_bakiye WHERE discord_id = $1", discord_id
+        )
+        if not row or row["miktar"] < miktar:
+            return False
+        await conn.execute(
+            "UPDATE gem_bakiye SET miktar = miktar - $2 WHERE discord_id = $1",
+            discord_id, miktar
+        )
+        await conn.execute(
+            "INSERT INTO gem_log (discord_id, miktar, tip, aciklama) VALUES ($1,$2,$3,$4)",
+            discord_id, -miktar, tip, aciklama
+        )
+        return True
+
+
+# ── Perk sistemi ──────────────────────────────────────────────────────────────
+
+async def get_aktif_perk(discord_id: int, perk_id: str):
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM aktif_perk WHERE discord_id=$1 AND perk_id=$2 AND bitis_tarihi > NOW()",
+            discord_id, perk_id
+        )
+        return row
+
+
+async def get_tum_aktif_perkler(discord_id: int) -> list:
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT * FROM aktif_perk WHERE discord_id=$1 AND bitis_tarihi > NOW()",
+            discord_id
+        )
+
+
+async def set_aktif_perk(discord_id: int, perk_id: str, sure_gun: int = 0, sure_saat: int = 0):
+    from datetime import datetime, timezone, timedelta
+    bitis = datetime.now(timezone.utc) + timedelta(days=sure_gun, hours=sure_saat)
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO aktif_perk (discord_id, perk_id, bitis_tarihi)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (discord_id, perk_id) DO UPDATE
+                SET bitis_tarihi = EXCLUDED.bitis_tarihi
+        """, discord_id, perk_id, bitis)
+    return bitis
+
+
+async def perk_haftalik_limit_kontrol(discord_id: int, perk_id: str) -> bool:
+    from datetime import datetime
+    now = datetime.now()
+    iso = now.isocalendar()
+    hafta_no = f"{iso[0]}-{iso[1]:02d}"
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id FROM perk_satin_alma WHERE discord_id=$1 AND perk_id=$2 AND hafta_no=$3",
+            discord_id, perk_id, hafta_no
+        )
+        return row is not None
+
+
+async def perk_gunluk_limit_kontrol(discord_id: int, perk_id: str) -> bool:
+    from datetime import date
+    bugun = date.today()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id FROM perk_satin_alma WHERE discord_id=$1 AND perk_id=$2 AND tarih=$3",
+            discord_id, perk_id, bugun
+        )
+        return row is not None
+
+
+async def perk_satin_alma_kaydet(discord_id: int, perk_id: str) -> None:
+    from datetime import date, datetime
+    bugun = date.today()
+    now   = datetime.now()
+    iso   = now.isocalendar()
+    hafta_no = f"{iso[0]}-{iso[1]:02d}"
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO perk_satin_alma (discord_id, perk_id, tarih, hafta_no) VALUES ($1,$2,$3,$4)",
+            discord_id, perk_id, bugun, hafta_no
+        )
+
+
+async def temizle_suresi_dolan_perkler(perk_idler: list = None) -> list:
+    async with pool.acquire() as conn:
+        if perk_idler:
+            rows = await conn.fetch(
+                "DELETE FROM aktif_perk WHERE bitis_tarihi < NOW() AND perk_id = ANY($1) RETURNING discord_id, perk_id",
+                perk_idler
+            )
+        else:
+            rows = await conn.fetch(
+                "DELETE FROM aktif_perk WHERE bitis_tarihi < NOW() RETURNING discord_id, perk_id"
+            )
+        return [(r["discord_id"], r["perk_id"]) for r in rows]
+
+
+# ── Rol & Lifetime görev ──────────────────────────────────────────────────────
+
+async def get_lifetime_gorev_sayisi(discord_id: int) -> int:
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT COUNT(*) FROM gunluk_gorev_log WHERE discord_id=$1 AND durum IN ('tamamlandi','onaylandi')",
+            discord_id
+        ) or 0
+
+
+# ── Patron sistemi ────────────────────────────────────────────────────────────
+
+async def patron_hasar_kaydet(patron_id: str, discord_id: int, hasar: int, saldiri_sayisi: int) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO patron_savas (patron_id, discord_id, toplam_hasar, saldiri_sayisi)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (patron_id, discord_id) DO UPDATE
+                SET toplam_hasar   = patron_savas.toplam_hasar   + EXCLUDED.toplam_hasar,
+                    saldiri_sayisi = patron_savas.saldiri_sayisi + EXCLUDED.saldiri_sayisi
+        """, patron_id, discord_id, hasar, saldiri_sayisi)
+
+
+async def patron_saldiri_sayisi_al(patron_id: str, discord_id: int) -> int:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT saldiri_sayisi FROM patron_savas WHERE patron_id=$1 AND discord_id=$2",
+            patron_id, discord_id
+        )
+        return row["saldiri_sayisi"] if row else 0
+
+
+async def patron_hasar_siralaması(patron_id: str, limit: int = 3) -> list:
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT discord_id, toplam_hasar FROM patron_savas WHERE patron_id=$1 ORDER BY toplam_hasar DESC LIMIT $2",
+            patron_id, limit
+        )
+
 
 async def update_boost(discord_id: int, seviye: int) -> None:
     async with pool.acquire() as conn:

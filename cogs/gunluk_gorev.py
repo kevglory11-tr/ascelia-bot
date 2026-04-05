@@ -17,6 +17,9 @@ import os
 
 import database
 from utils.logger import setup_logger
+from config.coin_settings import (
+    ROL_VANGUARD_ID, ROL_HARBINGER_ID, ROL_SENTINEL_ID, ROL_LUMINARY_ID
+)
 
 log       = setup_logger("gunluk_gorev")
 M2B       = "<:m2bcoin:1480481551337783437>"
@@ -27,6 +30,13 @@ BILDIRIM  = "<a:bildirim:1478390691334979645>"
 
 GOREV_KANAL_ID = int(os.getenv("GOREV_KANAL_ID", "0"))
 OY_LINK        = "https://metin2pvp.biz/servers/m2-board-1-115-farm-sunucusu-otomatik-av"
+
+ROL_ESIKLERI = {
+    3:  ROL_VANGUARD_ID,
+    6:  ROL_HARBINGER_ID,
+    9:  ROL_SENTINEL_ID,
+    12: ROL_LUMINARY_ID,
+}
 
 GOREVLER = [
     {
@@ -304,9 +314,37 @@ class GunlukGorevCog(commands.Cog):
                 if member:
                     await self._tamamla(member, reaction.message.guild, gorev)
 
+    # ── Rol kontrol ────────────────────────────────────────────
+    async def _rol_kontrol(self, member: discord.Member, guild: discord.Guild):
+        sayi = await database.get_lifetime_gorev_sayisi(member.id)
+        for esik, rol_id in ROL_ESIKLERI.items():
+            if sayi >= esik and rol_id:
+                rol = guild.get_role(rol_id)
+                if rol and rol not in member.roles:
+                    try:
+                        await member.add_roles(rol, reason=f"Günlük görev: {sayi} görev tamamlandı")
+                        log.info(f"Rol verildi: {member} → {rol.name}")
+                    except discord.Forbidden:
+                        log.warning(f"Rol verilemedi (yetki): {member} → {rol.name}")
+                    except Exception as e:
+                        log.error(f"Rol verme hatası: {e}")
+
+        # Luminary kalıcı bonus (sadece bir kez)
+        if sayi >= 12:
+            async with database.pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE coins SET luminary_bonus=5 WHERE discord_id=$1 AND luminary_bonus=0",
+                    member.id
+                )
+
     # ── Görev tamamlama ────────────────────────────────────────
     async def _tamamla(self, member: discord.Member, guild: discord.Guild, gorev: dict):
         bugun = date.today().isoformat()
+
+        # Görev Takviyesi perki aktif mi?
+        takviye = await database.get_aktif_perk(member.id, "gorev_takviyesi")
+        efektif_odul = gorev["odul"] + (10 if takviye and gorev["tur"] != "admin" else 0)
+
         async with database.pool.acquire() as conn:
             mevcut = await conn.fetchval(
                 """SELECT id FROM gunluk_gorev_log
@@ -321,21 +359,25 @@ class GunlukGorevCog(commands.Cog):
                    VALUES ($1,$2,$3,$4,'tamamlandi',$5,$6)
                    ON CONFLICT DO NOTHING""",
                 member.id, member.display_name,
-                gorev["id"], gorev["baslik"], bugun, gorev["odul"])
+                gorev["id"], gorev["baslik"], bugun, efektif_odul)
 
             yeni = await database.add_coins(
-                member.id, member.display_name, gorev["odul"],
+                member.id, member.display_name, efektif_odul,
                 aciklama=f"Günlük görev: {gorev['baslik']}")
 
+        # Rol kontrolü
+        await self._rol_kontrol(member, guild)
+
+        takviye_satir = f"\n⚡ **Görev Takviyesi:** +10 bonus coin!" if takviye and gorev["tur"] != "admin" else ""
         try:
             await member.send(
                 f"{OK} **Günlük görevin tamamlandı!**\n"
                 f"**{gorev['baslik']}**\n\n"
-                f"{COIN_ANIM} **+{gorev['odul']} M2B Coin** hesabına eklendi!\n"
+                f"{COIN_ANIM} **+{efektif_odul} M2B Coin** hesabına eklendi!{takviye_satir}\n"
                 f"Yeni bakiyen: **{yeni} M2B Coin**")
         except Exception:
             pass
-        log.info(f"Görev tamamlandı: {member} → {gorev['id']} +{gorev['odul']} coin")
+        log.info(f"Görev tamamlandı: {member} → {gorev['id']} +{efektif_odul} coin")
 
     # ── /günlük-görev komutu ──────────────────────────────────
     @app_commands.command(name="günlük-görev", description="Bugünkü görevini görüntüle.")
