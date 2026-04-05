@@ -212,6 +212,22 @@ async def _migrate() -> None:
             )
         except Exception:
             pass
+
+        # Patron haftalık ödül log tablosu
+        try:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS patron_haftalik_odul_log (
+                    id         SERIAL      PRIMARY KEY,
+                    hafta_no   TEXT        NOT NULL,
+                    discord_id BIGINT      NOT NULL,
+                    sira       INT         NOT NULL,
+                    gem_odul   INT         NOT NULL,
+                    verildi_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE (hafta_no, discord_id)
+                )
+            """)
+        except Exception:
+            pass
     log.info("✅ Migrasyon tamamlandı.")
 
 
@@ -564,6 +580,39 @@ async def patron_hasar_siralaması(patron_id: str, limit: int = 3) -> list:
             "SELECT discord_id, toplam_hasar FROM patron_savas WHERE patron_id=$1 ORDER BY toplam_hasar DESC LIMIT $2",
             patron_id, limit
         )
+
+
+async def patron_haftalik_siralama(hafta_no: str, limit: int = 10) -> list:
+    """O haftaki toplam hasara göre sıralama döndürür."""
+    async with pool.acquire() as conn:
+        return await conn.fetch("""
+            SELECT discord_id, SUM(toplam_hasar) AS haftalik_hasar
+            FROM patron_savas
+            WHERE TO_CHAR(zaman AT TIME ZONE 'Europe/Istanbul', 'IYYY-IW') = $1
+            GROUP BY discord_id
+            ORDER BY haftalik_hasar DESC
+            LIMIT $2
+        """, hafta_no, limit)
+
+
+async def patron_haftalik_odul_verildi(hafta_no: str) -> bool:
+    """O hafta için ödül verilip verilmediğini kontrol eder."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id FROM patron_haftalik_odul_log WHERE hafta_no=$1 LIMIT 1",
+            hafta_no
+        )
+        return row is not None
+
+
+async def patron_haftalik_odul_kaydet(hafta_no: str, discord_id: int, sira: int, gem_odul: int) -> None:
+    """Haftalık ödül kaydeder (tekrar verilmesini önler)."""
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO patron_haftalik_odul_log (hafta_no, discord_id, sira, gem_odul)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (hafta_no, discord_id) DO NOTHING
+        """, hafta_no, discord_id, sira, gem_odul)
 
 
 async def update_boost(discord_id: int, seviye: int) -> None:

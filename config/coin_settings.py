@@ -23,7 +23,7 @@ MARKET_URUNLER = [
 ]
 
 # ── Gem Sistemi ───────────────────────────────────────────
-GEM_COIN_KURU     = 1000  # 1 Gem = 1000 Coin
+GEM_COIN_KURU     = 200   # 1 Gem = 200 Coin
 
 # ── Patron ────────────────────────────────────────────────
 PATRON_KANAL_ID   = int(os.getenv("PATRON_KANAL_ID", "0"))
