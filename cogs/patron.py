@@ -297,8 +297,9 @@ class PatronCog(commands.Cog):
             return
 
         patron     = self.aktif_patron
-        self.aktif_patron = None
-        self.patron_hp    = 0
+        self.aktif_patron  = None
+        self.patron_hp     = 0
+        self.patron_max_hp = 0
 
         mesaj     = patron["mesaj"]
         patron_id = patron["patron_id"]
