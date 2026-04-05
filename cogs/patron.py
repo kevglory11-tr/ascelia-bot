@@ -107,8 +107,9 @@ class PatronCog(commands.Cog):
                 f"**⚔️ Saldırı hakkın:** {PATRON_MAX_SALDIRI}\n"
                 f"**⏳ Süre:** {PATRON_SURE_DK} dakika\n\n"
                 f"Aşağıdaki butona tıklayarak patrona saldır!\n"
-                f"En çok hasar veren **3 kişi** Gem ödülü kazanır!\n\n"
-                f"🥇 **1.** → 3 {GEM}  |  🥈 **2.** → 2 {GEM}  |  🥉 **3.** → 1 {GEM}"
+                f"Hafta sonunda en çok hasar veren **3 kişi** Gem ödülü kazanır!\n\n"
+                f"🥇 **1.** → 3 {GEM}  |  🥈 **2.** → 2 {GEM}  |  🥉 **3.** → 1 {GEM}\n"
+                f"*(Ödüller her Pazartesi 00:00 TR'de dağıtılır)*"
             ),
             color=0xCC0000,
         )
@@ -192,7 +193,6 @@ class PatronCog(commands.Cog):
         guclu_darbe = await database.perk_gunluk_limit_kontrol(uid, "patron_guclu_darbe")
         crit_hasar  = await database.perk_gunluk_limit_kontrol(uid, "patron_kritik_hasar")
 
-        crit_txt  = " 💥 **KRİTİK!**" if crit else ""
         kalan_hak = maks - (mevcut + 1)
 
         # Perk renkli hasar açıklaması
@@ -589,7 +589,7 @@ class PatronCog(commands.Cog):
 
         hp   = max(0, self.patron_hp)
         bitis = self.aktif_patron["bitis"]
-        kalan = max(0, (bitis - datetime.now(timezone.utc)).seconds // 60)
+        kalan = max(0, int((bitis - datetime.now(timezone.utc)).total_seconds()) // 60)
         katilimci = len(self.aktif_patron["katilimcilar"])
 
         embed = discord.Embed(
