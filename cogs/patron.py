@@ -14,6 +14,7 @@ from config.coin_settings import (
     PATRON_KANAL_ID, PATRON_MIN_SAAT, PATRON_MAX_SAAT,
     PATRON_HP, PATRON_SURE_DK, PATRON_MAX_SALDIRI,
     PATRON_HASAR_MIN, PATRON_HASAR_MAX, BILDIRIM_KANAL_ID,
+    PATRON_MAX_INDIRIM_SN, PATRON_INDIRIM_ESIK,
 )
 
 log       = setup_logger("patron")
@@ -379,14 +380,14 @@ class PatronCog(commands.Cog):
     async def on_message(self, message: discord.Message):
         if message.author.bot or self.kalan_sure <= 0 or self.aktif_patron:
             return
-        if self.indirilen_toplam >= 1800:
+        if self.indirilen_toplam >= PATRON_MAX_INDIRIM_SN:
             return
 
         self.unique_yazanlar.add(message.author.id)
 
-        if len(self.unique_yazanlar) >= 10:
-            indirim = 1800
-            kalan_indirilebilir = 1800 - self.indirilen_toplam
+        if len(self.unique_yazanlar) >= PATRON_INDIRIM_ESIK:
+            indirim = 1800  # Her tetiklemede 30 dk indirim
+            kalan_indirilebilir = PATRON_MAX_INDIRIM_SN - self.indirilen_toplam
             indirim = min(indirim, kalan_indirilebilir, self.kalan_sure - 10)
             if indirim > 0:
                 self.kalan_sure       -= indirim
@@ -394,7 +395,8 @@ class PatronCog(commands.Cog):
                 self.unique_yazanlar   = set()
                 log.info(
                     f"Patron {indirim//60}dk erken gelecek! "
-                    f"(Kalan: {self.kalan_sure//3600}s {(self.kalan_sure%3600)//60}dk)"
+                    f"(Toplam indirim: {self.indirilen_toplam//3600}s {(self.indirilen_toplam%3600)//60}dk, "
+                    f"Kalan: {self.kalan_sure//3600}s {(self.kalan_sure%3600)//60}dk)"
                 )
 
     # ── /patron-durum ────────────────────────────────────────────
