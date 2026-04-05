@@ -73,7 +73,7 @@ class YardimCog(commands.Cog, name="Yardım"):
                 "> <:dot1:1478383822625181879> `/bakiye` — M2B Coin bakiyeni gör\n"
                 "> <:dot1:1478383822625181879> `/bakiye @kullanıcı` — Birinin bakiyesine bak\n"
                 "> <:dot1:1478383822625181879> `/sıralama` — En zengin 10 kişi\n"
-                "> <:dot1:1478383822625181879> `/market` — MP Kuponlarını satın al\n"
+                "> <:dot1:1478383822625181879> `/market` — MP Kuponlarını satın al"
             ),
             inline=False,
         )
@@ -81,12 +81,35 @@ class YardimCog(commands.Cog, name="Yardım"):
         # ── Ayırıcı ────────────────────────────────────────────
         embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", value="\u200b", inline=False)
 
-        # ── Günlük Görev ───────────────────────────────────────
+        # ── Günlük Görev & Roller ──────────────────────────────
         embed.add_field(
-            name="📋  Günlük Görev",
+            name="📋  Günlük Görev & Roller",
             value=(
-                "> <:dot1:1478383822625181879> `/günlük-görev` — Bugünkü görevini gör\n"
-                "> <:dot1:1478383822625181879> `/günlük-görev-teslim <kanıt>` — Görevi teslim et"
+                "> <:dot2:1478383869534404712> `/günlük-görev` — Bugünkü görevini gör ve tamamla\n"
+                "> <:dot2:1478383869534404712> `/görev-istatistik` — Toplam görev, mevcut rol ve gem bakiyesi\n"
+                "> <:dot2:1478383869534404712> 3 · 6 · 9 · 12 görevde **Vanguard → Harbinger → Sentinel → Luminary** rolü"
+            ),
+            inline=False,
+        )
+
+        # ── Gem Sistemi ────────────────────────────────────────
+        embed.add_field(
+            name="💎  Gem Sistemi",
+            value=(
+                "> <:dot3:1478383947976282275> `/gem-al <adet>` — Coin harcayarak Gem satın al\n"
+                "> <:dot3:1478383947976282275> `/gem-mağaza` — Perkler ve Gem bilgisi\n"
+                "> <:dot3:1478383947976282275> `/perklerim` — Aktif perklerini gör"
+            ),
+            inline=False,
+        )
+
+        # ── Patron Sistemi ─────────────────────────────────────
+        embed.add_field(
+            name="👹  Patron Sistemi",
+            value=(
+                "> <:dot4:1478383949620449290> Patron günde 1 kez belirir — saldır, hasar ver!\n"
+                "> <:dot4:1478383949620449290> Her hafta en çok hasar veren **top 3** Pazartesi **Gem** ödülü alır\n"
+                "> <:dot4:1478383949620449290> `/patron-durum` — Aktif patronun HP ve süresini gör"
             ),
             inline=False,
         )
