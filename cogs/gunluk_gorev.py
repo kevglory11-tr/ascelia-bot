@@ -103,7 +103,6 @@ def _ilerleme(discord_id: int, gorev_id: str) -> tuple:
     t = _t(discord_id)
     if gorev_id == "mesaj_25":  return len(t["mesajlar"]), 25
     if gorev_id == "yanit_25":  return len(t["yanitlar"]), 25
-    if gorev_id == "ses_15":    return int(t["ses_sure"]),  15
     if gorev_id == "tepki_25":  return len(t["tepkiler"]),  25
     return 0, 1
 
@@ -241,7 +240,7 @@ class AdminGorevView(discord.ui.View):
         super().__init__(timeout=300)
         self.gorev = gorev
 
-    @discord.ui.button(label="Oy Kanıtı Gönder", style=discord.ButtonStyle.primary, emoji="🗳️")
+    @discord.ui.button(label="Kanıt Gönder", style=discord.ButtonStyle.primary, emoji="🗳️")
     async def gonder(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(AdminGorevModal(self.gorev))
 
@@ -358,7 +357,7 @@ class GunlukGorevCog(commands.Cog):
         embed.add_field(name="Görev",    value=f"**{gorev['baslik']}**", inline=False)
         embed.add_field(name="Açıklama", value=gorev["aciklama"],        inline=False)
 
-        if gorev["tur"] == "admin":
+        if gorev["id"] == "oy_ver":
             embed.add_field(name="Ödül", value="🎟️ 100 MP Kuponu", inline=True)
         else:
             embed.add_field(name="Ödül", value=f"{COIN_ANIM} {gorev['odul']} M2B Coin", inline=True)
