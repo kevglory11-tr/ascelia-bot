@@ -13,12 +13,13 @@ GUNLUK_MIN_COIN   = 1
 GUNLUK_MAX_COIN   = 50
 
 # ── Market (herkes için aynı) ─────────────────────────────
+# gem: satın alımda verilecek bonus Gem miktarı (0 = yok)
 MARKET_URUNLER = [
-    {"id": "mp_100", "isim": "🎟️ 100 MP Kuponu", "fiyat": 500},
-    {"id": "mp_200", "isim": "🎟️ 200 MP Kuponu", "fiyat": 1000},
-    {"id": "mp_300", "isim": "🎟️ 300 MP Kuponu", "fiyat": 1500},
-    {"id": "mp_400", "isim": "🎟️ 400 MP Kuponu", "fiyat": 2000},
-    {"id": "mp_500", "isim": "🎟️ 500 MP Kuponu", "fiyat": 2500},
+    {"id": "mp_100", "isim": "🎟️ 100 MP Kuponu", "fiyat": 500,  "gem": 0},
+    {"id": "mp_200", "isim": "🎟️ 200 MP Kuponu", "fiyat": 1000, "gem": 0},
+    {"id": "mp_300", "isim": "🎟️ 300 MP Kuponu", "fiyat": 1500, "gem": 1},
+    {"id": "mp_400", "isim": "🎟️ 400 MP Kuponu", "fiyat": 2000, "gem": 2},
+    {"id": "mp_500", "isim": "🎟️ 500 MP Kuponu", "fiyat": 2500, "gem": 3},
 ]
 
 # ── Gem Sistemi ───────────────────────────────────────────
@@ -26,13 +27,15 @@ GEM_COIN_KURU     = 200   # 1 Gem = 200 Coin
 
 # ── Patron ────────────────────────────────────────────────
 PATRON_KANAL_ID   = int(os.getenv("PATRON_KANAL_ID", "0"))
-PATRON_MIN_SAAT   = 1
-PATRON_MAX_SAAT   = 5
-PATRON_HP         = 800
+PATRON_MIN_SAAT   = 20          # Günde 1 baskın — min 20 saat
+PATRON_MAX_SAAT   = 24          # Günde 1 baskın — max 24 saat
+PATRON_HP         = 2000
 PATRON_SURE_DK    = 30
 PATRON_MAX_SALDIRI = 3
 PATRON_HASAR_MIN  = 20
 PATRON_HASAR_MAX  = 80
+PATRON_MAX_INDIRIM_SN = 21600   # Yazarak max 6 saat erken çağırılabilir
+PATRON_INDIRIM_ESIK   = 5       # Her 5 unique yazan → 30 dk indirim
 
 # ── Bildirim Kanalı ───────────────────────────────────────
 BILDIRIM_KANAL_ID = int(os.getenv("BILDIRIM_KANAL_ID", "0"))

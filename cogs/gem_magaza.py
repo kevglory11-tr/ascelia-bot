@@ -23,74 +23,82 @@ PERKLER = {
     "gunluk_gorev_yenile": {
         "isim":      "Görev Yenile",
         "aciklama":  "Bugünkü günlük görevini değiştirir.",
-        "maliyet":   3,
+        "maliyet":   10,
         "limit_turu": "haftalik",
         "sure_gun":  0,
         "patron":    False,
         "ikon":      "perk_gorev_yenile.png",
+        "emoji":     "🔄",
     },
     "gunluk_gorev_satin_al": {
         "isim":      "Ek Görev Hakkı",
         "aciklama":  "Bugün için 1 ekstra görev hakkı kazanırsın.",
-        "maliyet":   5,
+        "maliyet":   15,
         "limit_turu": "haftalik",
         "sure_gun":  0,
         "patron":    False,
         "ikon":      "perk_gorev_satin_al.png",
+        "emoji":     "➕",
     },
     "giris_takviyesi": {
         "isim":      "Giriş Takviyesi",
         "aciklama":  "3 gün boyunca günlük girişe +5 Coin bonus.",
-        "maliyet":   2,
+        "maliyet":   8,
         "limit_turu": "haftalik",
         "sure_gun":  3,
         "patron":    False,
         "ikon":      "perk_giris_takviyesi.png",
+        "emoji":     "📈",
     },
     "gorev_takviyesi": {
         "isim":      "Görev Takviyesi",
         "aciklama":  "3 gün boyunca görev ödülüne +10 Coin (MP kuponu hariç).",
-        "maliyet":   3,
+        "maliyet":   10,
         "limit_turu": "haftalik",
         "sure_gun":  3,
         "patron":    False,
         "ikon":      "perk_gorev_takviyesi.png",
+        "emoji":     "⚡",
     },
     "patron_guclu_darbe": {
         "isim":      "Güçlü Darbe",
         "aciklama":  "Patron saldırısında +8 flat hasar.",
-        "maliyet":   2,
+        "maliyet":   5,
         "limit_turu": "gunluk",
         "sure_gun":  0,
         "patron":    True,
         "ikon":      "perk_guclu_darbe.png",
+        "emoji":     "💪",
     },
     "patron_kritik_sans": {
         "isim":      "Kritik Şans",
         "aciklama":  "%8 ekstra kritik vuruş ihtimali.",
-        "maliyet":   2,
+        "maliyet":   5,
         "limit_turu": "gunluk",
         "sure_gun":  0,
         "patron":    True,
         "ikon":      "perk_kritik_sans.png",
+        "emoji":     "🎯",
     },
     "patron_kritik_hasar": {
         "isim":      "Kritik Hasar",
         "aciklama":  "Kritik vuruşlarda ×1.15 ekstra hasar.",
-        "maliyet":   2,
+        "maliyet":   5,
         "limit_turu": "gunluk",
         "sure_gun":  0,
         "patron":    True,
         "ikon":      "perk_kritik_hasar.png",
+        "emoji":     "💥",
     },
     "patron_ekstra_saldiri": {
         "isim":      "Ekstra Saldırı",
         "aciklama":  "+1 saldırı hakkı (3 → 4).",
-        "maliyet":   3,
+        "maliyet":   8,
         "limit_turu": "gunluk",
         "sure_gun":  0,
         "patron":    True,
         "ikon":      "perk_ekstra_saldiri.png",
+        "emoji":     "⚔️",
     },
 }
 
@@ -98,7 +106,8 @@ PERKLER = {
 class PerkSatinAlButon(discord.ui.Button):
     def __init__(self, perk_id: str, perk: dict):
         super().__init__(
-            label=f"{perk['isim']} ({perk['maliyet']} {GEM})",
+            label=f"{perk['isim']} ({perk['maliyet']} 💎)",
+            emoji=perk.get("emoji", "🔹"),
             style=discord.ButtonStyle.primary,
             custom_id=f"perk_{perk_id}",
         )
@@ -166,11 +175,12 @@ class PerkSatinAlButon(discord.ui.Button):
         else:
             sure_txt = ""
 
-        # Görev Yenile — anlık etki (in-memory tracker'ı sıfırla)
+        # Görev Yenile — anlık etki (in-memory tracker'ı sıfırla + yenileme sayacını artır)
         if pid == "gunluk_gorev_yenile":
-            from cogs.gunluk_gorev import _tracker, _son_gun
+            from cogs.gunluk_gorev import _tracker, _yenileme
             if interaction.user.id in _tracker:
                 del _tracker[interaction.user.id]
+            _yenileme[interaction.user.id] = _yenileme.get(interaction.user.id, 0) + 1
             extra = "\n🔄 Günlük görevin yenilendi! `/günlük-görev` ile yeni görevini al."
         else:
             extra = ""
@@ -218,6 +228,14 @@ class GemMagazaCog(commands.Cog):
         perkler = await database.get_tum_aktif_perkler(uid)
         aktif_ids = {r["perk_id"] for r in perkler}
 
+        # Her perk için satın alma durumunu önceden topla (async)
+        limit_durum: dict[str, bool] = {}
+        for pid, perk in PERKLER.items():
+            if perk["limit_turu"] == "haftalik":
+                limit_durum[pid] = await database.perk_haftalik_limit_kontrol(uid, pid)
+            else:
+                limit_durum[pid] = await database.perk_gunluk_limit_kontrol(uid, pid)
+
         embed = discord.Embed(
             title=f"{GEM} Gem Mağazası",
             description=(
@@ -233,13 +251,15 @@ class GemMagazaCog(commands.Cog):
         for pid, perk in PERKLER.items():
             if perk["patron"]:
                 continue
-            durum = "✅ Aktif" if pid in aktif_ids else (
-                "⏳ Bu hafta alındı" if (
-                    perk["limit_turu"] == "haftalik"
-                ) else ""
-            )
+            if pid in aktif_ids:
+                durum = "✅ Aktif"
+            elif limit_durum.get(pid):
+                durum = "⏳ Bu hafta alındı" if perk["limit_turu"] == "haftalik" else "⏳ Bugün alındı"
+            else:
+                durum = ""
             limit = "Haftada 1" if perk["limit_turu"] == "haftalik" else "Günde 1"
-            genel_txt += f"**{perk['isim']}** — {perk['maliyet']} {GEM}\n"
+            emo = perk.get("emoji", "🔹")
+            genel_txt += f"{emo} **{perk['isim']}** — {perk['maliyet']} 💎\n"
             genel_txt += f"> {perk['aciklama']}\n"
             genel_txt += f"> *{limit}* {durum}\n\n"
         embed.add_field(name="🌟 Genel Perkler", value=genel_txt or "—", inline=False)
@@ -249,10 +269,14 @@ class GemMagazaCog(commands.Cog):
         for pid, perk in PERKLER.items():
             if not perk["patron"]:
                 continue
-            limit = "Günde 1"
-            patron_txt += f"**{perk['isim']}** — {perk['maliyet']} {GEM}\n"
+            if limit_durum.get(pid):
+                durum = "⏳ Bugün alındı"
+            else:
+                durum = ""
+            emo = perk.get("emoji", "🔹")
+            patron_txt += f"{emo} **{perk['isim']}** — {perk['maliyet']} 💎\n"
             patron_txt += f"> {perk['aciklama']}\n"
-            patron_txt += f"> *{limit}*\n\n"
+            patron_txt += f"> *Günde 1* {durum}\n\n"
         embed.add_field(name="⚔️ Patron Perkleri", value=patron_txt or "—", inline=False)
 
         embed.set_footer(text=f"/gem-al ile Coin → Gem dönüştür • /perklerim ile aktif perklerini gör")
@@ -266,15 +290,16 @@ class GemMagazaCog(commands.Cog):
         async def genel_cb(i: discord.Interaction):
             bakiye = await database.get_gem_bakiye(i.user.id)
             e = discord.Embed(
-                title=f"🌟 Genel Perkler",
-                description=f"{GEM} Gem bakiyen: **{bakiye}**\nSatın almak istediğin perki seç:",
+                title="🌟 Genel Perkler",
+                description=f"💎 Gem bakiyen: **{bakiye}**\nSatın almak istediğin perki seç:",
                 color=0x2ECC71,
             )
             for pid, p in PERKLER.items():
                 if not p["patron"]:
                     limit = "Haftada 1" if p["limit_turu"] == "haftalik" else "Günde 1"
+                    emo = p.get("emoji", "🔹")
                     e.add_field(
-                        name=f"{p['isim']} — {p['maliyet']} {GEM}",
+                        name=f"{emo} {p['isim']} — {p['maliyet']} 💎",
                         value=f"> {p['aciklama']}\n> *{limit}*",
                         inline=False,
                     )
@@ -283,14 +308,15 @@ class GemMagazaCog(commands.Cog):
         async def patron_cb(i: discord.Interaction):
             bakiye = await database.get_gem_bakiye(i.user.id)
             e = discord.Embed(
-                title=f"⚔️ Patron Perkleri",
-                description=f"{GEM} Gem bakiyen: **{bakiye}**\nSatın almak istediğin perki seç:",
+                title="⚔️ Patron Perkleri",
+                description=f"💎 Gem bakiyen: **{bakiye}**\nSatın almak istediğin perki seç:",
                 color=0xCC0000,
             )
             for pid, p in PERKLER.items():
                 if p["patron"]:
+                    emo = p.get("emoji", "🔹")
                     e.add_field(
-                        name=f"{p['isim']} — {p['maliyet']} {GEM}",
+                        name=f"{emo} {p['isim']} — {p['maliyet']} 💎",
                         value=f"> {p['aciklama']}\n> *Günde 1*",
                         inline=False,
                     )

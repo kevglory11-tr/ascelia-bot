@@ -77,22 +77,19 @@ GOREVLER = [
 ]
 
 
-def bugunun_gorevi(discord_id: int) -> dict:
-    bugun = date.today().isoformat()
-    seed  = hash(f"{discord_id}_{bugun}") % len(GOREVLER)
-    return GOREVLER[seed]
-
-
 # ── In-memory tracker (gün bazlı sıfırlanır) ──────────────────
 _tracker: dict[int, dict] = {}
 _son_gun: date = date.today()
+# Görev yenileme sayacı: {discord_id: yenileme_sayisi}
+_yenileme: dict[int, int] = {}
 
 
 def _tracker_kontrol():
-    global _son_gun
+    global _son_gun, _yenileme
     bugun = date.today()
     if bugun != _son_gun:
         _tracker.clear()
+        _yenileme.clear()
         _son_gun = bugun
 
 
@@ -107,6 +104,27 @@ def _t(discord_id: int) -> dict:
             "ses_sure":      0.0,
         }
     return _tracker[discord_id]
+
+
+def bugunun_gorevi(discord_id: int, ek: bool = False) -> dict:
+    """
+    ek=False → normal görev
+    ek=True  → 2. görev (farklı seed, ana görevle çakışmaz)
+    Görev Yenile perki kullanıldıysa _yenileme sayacı artar → farklı görev çıkar.
+    """
+    _tracker_kontrol()
+    bugun    = date.today().isoformat()
+    yenileme = _yenileme.get(discord_id, 0)
+    seed     = hash(f"{discord_id}_{bugun}_{yenileme}") % len(GOREVLER)
+
+    if not ek:
+        return GOREVLER[seed]
+
+    # Ek görev: ana görevle aynı olmaması için farklı index seç
+    ek_seed = hash(f"{discord_id}_{bugun}_ek_{yenileme}") % len(GOREVLER)
+    if ek_seed == seed:
+        ek_seed = (ek_seed + 1) % len(GOREVLER)
+    return GOREVLER[ek_seed]
 
 
 def _ilerleme(discord_id: int, gorev_id: str) -> tuple:
@@ -283,32 +301,59 @@ class GunlukGorevCog(commands.Cog):
             )
         log.info("Günlük görev tablosu hazır.")
 
+    async def _aktif_gorev_al(self, discord_id: int) -> tuple[dict, bool]:
+        """
+        Kullanıcının şu an aktif görevini döndürür.
+        ek_hak=True ve ana görev tamamlandıysa ek görevi döndürür.
+        Returns: (gorev, ek_mi)
+        """
+        bugun  = date.today().isoformat()
+        ek_hak = await database.perk_haftalik_limit_kontrol(discord_id, "gunluk_gorev_satin_al")
+
+        if ek_hak:
+            async with database.pool.acquire() as conn:
+                ana = await conn.fetchrow(
+                    """SELECT durum FROM gunluk_gorev_log
+                       WHERE discord_id=$1 AND tarih=$2 AND ek_gorev=FALSE
+                       ORDER BY id DESC LIMIT 1""", discord_id, bugun)
+                ana_tamam = ana and ana["durum"] in ("tamamlandi", "onaylandi")
+                if ana_tamam:
+                    ek = await conn.fetchrow(
+                        """SELECT durum FROM gunluk_gorev_log
+                           WHERE discord_id=$1 AND tarih=$2 AND ek_gorev=TRUE
+                           ORDER BY id DESC LIMIT 1""", discord_id, bugun)
+                    ek_tamam = ek and ek["durum"] in ("tamamlandi", "onaylandi")
+                    if not ek_tamam:
+                        return bugunun_gorevi(discord_id, ek=True), True
+
+        return bugunun_gorevi(discord_id, ek=False), False
+
     # ── Event: mesaj ──────────────────────────────────────────
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
             return
-        gorev = bugunun_gorevi(message.author.id)
+        gorev, ek = await self._aktif_gorev_al(message.author.id)
         t = _t(message.author.id)
 
         if gorev["id"] == "mesaj_25":
             t["mesajlar"].add(message.id)
             if len(t["mesajlar"]) == 25:
-                await self._tamamla(message.author, message.guild, gorev)
+                await self._tamamla(message.author, message.guild, gorev, ek=ek)
 
         elif gorev["id"] == "yanit_25" and message.reference:
             ref = message.reference.resolved
             if ref and hasattr(ref, "author") and ref.author.id != message.author.id:
                 t["yanitlar"].add(ref.author.id)
                 if len(t["yanitlar"]) == 25:
-                    await self._tamamla(message.author, message.guild, gorev)
+                    await self._tamamla(message.author, message.guild, gorev, ek=ek)
 
     # ── Event: tepki ──────────────────────────────────────────
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction: discord.Reaction, user):
         if user.bot or not reaction.message.guild:
             return
-        gorev = bugunun_gorevi(user.id)
+        gorev, ek = await self._aktif_gorev_al(user.id)
         if gorev["id"] != "tepki_25":
             return
         t = _t(user.id)
@@ -317,7 +362,7 @@ class GunlukGorevCog(commands.Cog):
             if len(t["tepkiler"]) == 25:
                 member = reaction.message.guild.get_member(user.id)
                 if member:
-                    await self._tamamla(member, reaction.message.guild, gorev)
+                    await self._tamamla(member, reaction.message.guild, gorev, ek=ek)
 
     # ── Rol kontrol ────────────────────────────────────────────
     async def _rol_kontrol(self, member: discord.Member, guild: discord.Guild):
@@ -343,7 +388,7 @@ class GunlukGorevCog(commands.Cog):
                 )
 
     # ── Görev tamamlama ────────────────────────────────────────
-    async def _tamamla(self, member: discord.Member, guild: discord.Guild, gorev: dict):
+    async def _tamamla(self, member: discord.Member, guild: discord.Guild, gorev: dict, ek: bool = False):
         bugun = date.today().isoformat()
 
         # Görev Takviyesi perki aktif mi?
@@ -353,18 +398,18 @@ class GunlukGorevCog(commands.Cog):
         async with database.pool.acquire() as conn:
             mevcut = await conn.fetchval(
                 """SELECT id FROM gunluk_gorev_log
-                   WHERE discord_id=$1 AND gorev_id=$2 AND tarih=$3 AND durum='tamamlandi'""",
-                member.id, gorev["id"], bugun)
+                   WHERE discord_id=$1 AND gorev_id=$2 AND tarih=$3 AND durum='tamamlandi' AND ek_gorev=$4""",
+                member.id, gorev["id"], bugun, ek)
             if mevcut:
                 return
 
             await conn.execute(
                 """INSERT INTO gunluk_gorev_log
-                   (discord_id, isim, gorev_id, gorev_baslik, durum, tarih, odul)
-                   VALUES ($1,$2,$3,$4,'tamamlandi',$5,$6)
+                   (discord_id, isim, gorev_id, gorev_baslik, durum, tarih, odul, ek_gorev)
+                   VALUES ($1,$2,$3,$4,'tamamlandi',$5,$6,$7)
                    ON CONFLICT DO NOTHING""",
                 member.id, member.display_name,
-                gorev["id"], gorev["baslik"], bugun, efektif_odul)
+                gorev["id"], gorev["baslik"], bugun, efektif_odul, ek)
 
             yeni = await database.add_coins(
                 member.id, member.display_name, efektif_odul,
@@ -387,20 +432,38 @@ class GunlukGorevCog(commands.Cog):
     # ── /günlük-görev komutu ──────────────────────────────────
     @app_commands.command(name="günlük-görev", description="Bugünkü görevini görüntüle.")
     async def gunluk_gorev(self, interaction: discord.Interaction):
-        gorev = bugunun_gorevi(interaction.user.id)
+        uid   = interaction.user.id
         bugun = date.today().isoformat()
 
-        async with database.pool.acquire() as conn:
-            kayit = await conn.fetchrow(
-                """SELECT durum FROM gunluk_gorev_log
-                   WHERE discord_id=$1 AND gorev_id=$2 AND tarih=$3""",
-                interaction.user.id, gorev["id"], bugun)
+        # Ek görev hakkı kontrolü
+        ek_hak = await database.perk_haftalik_limit_kontrol(uid, "gunluk_gorev_satin_al")
 
-        tamamlandi = kayit and kayit["durum"] in ("tamamlandi", "onaylandi", "bekliyor")
+        async with database.pool.acquire() as conn:
+            # Ana görev kaydı
+            ana_kayit = await conn.fetchrow(
+                """SELECT durum, gorev_id FROM gunluk_gorev_log
+                   WHERE discord_id=$1 AND tarih=$2 AND ek_gorev=FALSE
+                   ORDER BY id DESC LIMIT 1""",
+                uid, bugun)
+            # Ek görev kaydı
+            ek_kayit = await conn.fetchrow(
+                """SELECT durum, gorev_id FROM gunluk_gorev_log
+                   WHERE discord_id=$1 AND tarih=$2 AND ek_gorev=TRUE
+                   ORDER BY id DESC LIMIT 1""",
+                uid, bugun) if ek_hak else None
+
+        ana_tamamlandi = ana_kayit and ana_kayit["durum"] in ("tamamlandi", "onaylandi", "bekliyor")
+        ek_tamamlandi  = ek_kayit  and ek_kayit["durum"]  in ("tamamlandi", "onaylandi", "bekliyor")
+
+        # Hangi görevi göstereceğimizi belirle
+        # Ek görev hakkı var VE ana görev tamamlandı VE ek görev henüz yapılmadıysa → ek görevi göster
+        goster_ek = ek_hak and ana_tamamlandi and not ek_tamamlandi
+        gorev     = bugunun_gorevi(uid, ek=goster_ek)
+        tamamlandi = ek_tamamlandi if goster_ek else ana_tamamlandi
 
         embed = discord.Embed(
-            title=f"{BILDIRIM}  Günlük Görev",
-            color=0x95A5A6 if tamamlandi else 0x2ECC71)
+            title=f"{BILDIRIM}  {'Ek Günlük Görev' if goster_ek else 'Günlük Görev'}",
+            color=0x95A5A6 if tamamlandi else (0xFFD700 if goster_ek else 0x2ECC71))
         embed.add_field(name="Görev",    value=f"**{gorev['baslik']}**", inline=False)
         embed.add_field(name="Açıklama", value=gorev["aciklama"],        inline=False)
 
@@ -409,14 +472,21 @@ class GunlukGorevCog(commands.Cog):
         else:
             embed.add_field(name="Ödül", value=f"{COIN_ANIM} {gorev['odul']} M2B Coin", inline=True)
 
+        if goster_ek:
+            embed.add_field(name="💎 Ek Görev", value="Gem Mağazası'ndan satın alınan ek görev hakkı!", inline=False)
+
         if tamamlandi:
+            kayit = ek_kayit if goster_ek else ana_kayit
             durum_txt = {"tamamlandi": "✅ Tamamlandı", "onaylandi": "✅ Onaylandı", "bekliyor": "⏳ Onay Bekliyor"}
             embed.add_field(name="Durum", value=durum_txt.get(kayit["durum"], "✅"), inline=True)
+            # Ana da ek de tamamlandıysa bilgi ver
+            if ana_tamamlandi and ek_tamamlandi:
+                embed.set_footer(text="Bugün hem ana hem ek görevini tamamladın! 🎉")
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         if gorev["tur"] == "otomatik":
-            mevcut, hedef = _ilerleme(interaction.user.id, gorev["id"])
+            mevcut, hedef = _ilerleme(uid, gorev["id"])
             dolu   = min(mevcut, 10)
             bos    = 10 - dolu
             embed.add_field(

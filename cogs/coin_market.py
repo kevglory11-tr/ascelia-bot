@@ -12,6 +12,8 @@ MARKET_LOG_KANAL_ID = int(os.getenv("MARKET_LOG_KANAL_ID", "0"))
 from utils.logger import setup_logger
 from config.coin_settings import MARKET_URUNLER
 
+GEM = "💎"
+
 log = setup_logger("coin_market")
 
 M2B    = "<:m2bcoin:1480481551337783437>"
@@ -31,15 +33,17 @@ class MarketSelect(discord.ui.Select):
         self.discord_id = discord_id
         options = []
         for urun in MARKET_URUNLER:
+            gem_bonus = urun.get("gem", 0)
+            gem_txt   = f" + {gem_bonus} 💎" if gem_bonus > 0 else ""
             if bugun_alindi:
                 durum = "⛔"
                 desc  = "Bugün satın alma hakkın doldu"
             elif bakiye >= urun["fiyat"]:
                 durum = "✦"
-                desc  = f"{urun['fiyat']:,} M2B Coin"
+                desc  = f"{urun['fiyat']:,} M2B Coin{gem_txt}"
             else:
                 durum = "🔒"
-                desc  = f"{urun['fiyat']:,} M2B Coin — Yetersiz bakiye"
+                desc  = f"{urun['fiyat']:,} M2B Coin{gem_txt} — Yetersiz bakiye"
             options.append(discord.SelectOption(
                 label=urun["isim"],
                 description=f"{durum}  {desc}",
@@ -113,6 +117,14 @@ class MarketSelect(discord.ui.Select):
                 interaction.user.id, _bugun_tr(),
             )
 
+        # Gem bonusu ver
+        gem_bonus = urun.get("gem", 0)
+        gem_satir = ""
+        if gem_bonus > 0:
+            await database.add_gem(interaction.user.id, gem_bonus,
+                                   tip="market_bonus", aciklama=f"{urun['isim']} alım bonusu")
+            gem_satir = f"\n{GEM} **+{gem_bonus} Gem** bonus olarak eklendi!"
+
         kayit    = await database.ensure_user(interaction.user.id, interaction.user.display_name)
         simdi_tr = datetime.now(timezone.utc) + TR_OFFSET
         tarih_str = simdi_tr.strftime("%d.%m.%Y %H:%M")
@@ -123,7 +135,8 @@ class MarketSelect(discord.ui.Select):
             description=(
                 f"🎟️ **{urun['isim']}** başarıyla satın alındı!\n\n"
                 f"💸 Ödenen: **{urun['fiyat']:,}** {M2B}\n"
-                f"{M2B} Kalan bakiye: **{kayit['bakiye']:,}** M2B Coin\n\n"
+                f"{M2B} Kalan bakiye: **{kayit['bakiye']:,}** M2B Coin"
+                f"{gem_satir}\n\n"
                 f"⏰ **Satın alma saati:** {tarih_str}\n"
                 f"🔄 **Günlük limit:** Bugün 1 alım hakkın vardı, kullandın.\n"
                 f"📅 Bir sonraki alım hakkın **yarın 00:00 TR** saatinde açılır."
@@ -199,9 +212,11 @@ class CoinMarketCog(commands.Cog):
                     durum = OK
                 else:
                     durum = "🔒"
+                gem_bonus = urun.get("gem", 0)
+                gem_txt   = f"\n{GEM} **+{gem_bonus} Gem** bonus!" if gem_bonus > 0 else ""
                 embed.add_field(
                     name=f"{durum} {urun['isim']}",
-                    value=f"{M2B} **{urun['fiyat']:,} Coin**",
+                    value=f"{M2B} **{urun['fiyat']:,} Coin**{gem_txt}",
                     inline=True,
                 )
             if bugun_alindi:
