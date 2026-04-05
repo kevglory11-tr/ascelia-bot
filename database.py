@@ -442,16 +442,14 @@ async def add_gem(discord_id: int, miktar: int, tip: str, aciklama: str = None) 
 
 
 async def remove_gem(discord_id: int, miktar: int, tip: str, aciklama: str = None) -> bool:
+    """Atomik güncelleme — bakiye yetersizse False döner, race condition olmaz."""
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT miktar FROM gem_bakiye WHERE discord_id = $1", discord_id
-        )
-        if not row or row["miktar"] < miktar:
-            return False
-        await conn.execute(
-            "UPDATE gem_bakiye SET miktar = miktar - $2 WHERE discord_id = $1",
+            "UPDATE gem_bakiye SET miktar = miktar - $2 WHERE discord_id = $1 AND miktar >= $2 RETURNING miktar",
             discord_id, miktar
         )
+        if not row:
+            return False
         await conn.execute(
             "INSERT INTO gem_log (discord_id, miktar, tip, aciklama) VALUES ($1,$2,$3,$4)",
             discord_id, -miktar, tip, aciklama

@@ -4,7 +4,7 @@ cogs/gunluk_gorev.py — Günlük Görev sistemi (revize)
 Görevler:
   1. Sunucuya 25 mesaj gönder          — 25 coin  (otomatik)
   2. 25 farklı mesajı yanıtla           — 25 coin  (otomatik)
-  3. Ses kanalında 15 dk aktif ol       — 25 coin  (otomatik)
+  3. Instagram gönderisine yorum at     — 25 coin  (admin onaylı)
   4. 25 farklı mesaja tepki bırak       — 25 coin  (otomatik)
   5. metin2pvp.biz günlük oy ver        — admin onaylı (ödül: 100 MP)
 """
@@ -97,11 +97,9 @@ def _t(discord_id: int) -> dict:
     _tracker_kontrol()
     if discord_id not in _tracker:
         _tracker[discord_id] = {
-            "mesajlar":      set(),
-            "yanitlar":      set(),
-            "tepkiler":      set(),
-            "ses_baslangic": None,
-            "ses_sure":      0.0,
+            "mesajlar": set(),
+            "yanitlar": set(),
+            "tepkiler": set(),
         }
     return _tracker[discord_id]
 
