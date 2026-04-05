@@ -8,11 +8,12 @@ import database
 from utils.logger import setup_logger
 from config.settings import Settings
 
-log      = setup_logger("admin_coin")
-settings = Settings()
-M2B      = "<:m2bcoin:1480481551337783437>"
-OK       = "<a:check:1478394670856933429>"
-FAIL     = "<a:redx:1478394672012034088>"
+log       = setup_logger("admin_coin")
+settings  = Settings()
+M2B       = "<:m2bcoin:1480481551337783437>"
+OK        = "<a:check:1478394670856933429>"
+FAIL      = "<a:redx:1478394672012034088>"
+COIN_ANIM = "<a:coin:1478390167310958734>"
 
 
 def _admin_kontrol(interaction: discord.Interaction) -> bool:
@@ -92,39 +93,17 @@ class AdminCoinCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
         log.info(f"Admin coin sil: {interaction.user} → {kullanici} -{miktar}")
 
-
     @app_commands.command(name="admin-tum-coinleri-sil", description="[Admin] Tüm kullanıcıların coinlerini sıfırla.")
     async def admin_tum_coinleri_sil(self, interaction: discord.Interaction):
         if not _admin_kontrol(interaction):
             await interaction.response.send_message(f"{FAIL} Bu komutu kullanma yetkin yok!", ephemeral=True)
             return
 
-        # Onay butonu
         view = TumCoinSilOnayView()
         await interaction.response.send_message(
             "⚠️ **Tüm kullanıcıların coinleri sıfırlanacak!** Emin misin?",
             view=view, ephemeral=True
         )
-
-
-class TumCoinSilOnayView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=30)
-
-    @discord.ui.button(label="Evet, Sıfırla", style=discord.ButtonStyle.danger)
-    async def onayla(self, interaction: discord.Interaction, button: discord.ui.Button):
-        async with database.pool.acquire() as conn:
-            await conn.execute("UPDATE coins SET bakiye = 0, toplam_kazanilan = 0, son_giris = NULL")
-        for item in self.children:
-            item.disabled = True
-        await interaction.response.edit_message(
-            content="✅ Tüm coinler sıfırlandı.", view=self
-        )
-
-    @discord.ui.button(label="İptal", style=discord.ButtonStyle.secondary)
-    async def iptal(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="❌ İptal edildi.", view=None)
-
 
     @app_commands.command(name="işlemler", description="[Admin] Kullanıcının coin geçmişini görüntüle.")
     @app_commands.describe(kullanici="Geçmişi görülecek kullanıcı", adet="Kaç işlem gösterilsin (max 20)")
@@ -176,11 +155,10 @@ class TumCoinSilOnayView(discord.ui.View):
         await interaction.followup.send(embed=embed, ephemeral=True)
         log.info(f"İşlemler: {interaction.user} → {kullanici}")
 
-
     @app_commands.command(name="coin-sıralaması", description="[Admin] Tüm sunucunun coin sıralamasını göster.")
     @app_commands.describe(sayfa="Sayfa numarası (her sayfada 10 kişi)")
     async def coin_siralaması(self, interaction: discord.Interaction, sayfa: int = 1):
-        if not self._admin_kontrol(interaction):
+        if not _admin_kontrol(interaction):
             await interaction.response.send_message("❌ Yetkin yok!", ephemeral=True)
             return
 
@@ -222,6 +200,25 @@ class TumCoinSilOnayView(discord.ui.View):
         embed.set_footer(text=f"Toplam {toplam} kullanıcı • /coin-sıralaması [sayfa]")
         await interaction.followup.send(embed=embed, ephemeral=True)
         log.info(f"Coin sıralaması görüntülendi: {interaction.user} (sayfa {sayfa})")
+
+
+class TumCoinSilOnayView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=30)
+
+    @discord.ui.button(label="Evet, Sıfırla", style=discord.ButtonStyle.danger)
+    async def onayla(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with database.pool.acquire() as conn:
+            await conn.execute("UPDATE coins SET bakiye = 0, toplam_kazanilan = 0, son_giris = NULL")
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(
+            content="✅ Tüm coinler sıfırlandı.", view=self
+        )
+
+    @discord.ui.button(label="İptal", style=discord.ButtonStyle.secondary)
+    async def iptal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="❌ İptal edildi.", view=None)
 
 
 async def setup(bot: commands.Bot):
