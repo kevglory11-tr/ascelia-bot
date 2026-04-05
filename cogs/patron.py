@@ -9,6 +9,7 @@ from discord.ext import commands
 
 import database
 from utils.logger import setup_logger
+from utils.patron_gorseli import patron_gorseli_olustur
 from config.coin_settings import (
     PATRON_KANAL_ID, PATRON_MIN_SAAT, PATRON_MAX_SAAT,
     PATRON_HP, PATRON_SURE_DK, PATRON_MAX_SALDIRI,
@@ -176,16 +177,44 @@ class PatronCog(commands.Cog):
         # DB'ye kaydet
         await database.patron_hasar_kaydet(patron_id, uid, hasar, 1)
 
-        crit_txt = " 💥 **KRİTİK!**" if crit else ""
+        # Perk durumlarını al (görsel için)
+        guclu_darbe = await database.perk_gunluk_limit_kontrol(uid, "patron_guclu_darbe")
+        crit_hasar  = await database.perk_gunluk_limit_kontrol(uid, "patron_kritik_hasar")
+
+        crit_txt  = " 💥 **KRİTİK!**" if crit else ""
         kalan_hak = maks - (mevcut + 1)
 
-        await interaction.followup.send(
-            f"{SWORD} **{hasar} hasar** verdin!{crit_txt}\n"
-            f"❤️ Patron canı: **{hp_simdi}/{PATRON_HP}**\n"
-            f"Kalan saldırı hakkın: **{kalan_hak}**",
-            ephemeral=True)
+        # Perk renkli hasar açıklaması
+        if crit and crit_hasar:
+            hasar_aciklama = f"💜 **KRİTİK + Hasar Artışı:** -{hasar}"
+        elif crit:
+            hasar_aciklama = f"🟠 **KRİTİK Vuruş:** -{hasar}"
+        elif guclu_darbe:
+            hasar_aciklama = f"🔴 **Güçlü Darbe:** -{hasar}"
+        else:
+            hasar_aciklama = f"⚔️ **Hasar:** -{hasar}"
 
-        # Embed güncelle
+        # Saldırı görseli oluştur (asyncio executor ile bloklamayı önle)
+        loop = asyncio.get_event_loop()
+        buf  = await loop.run_in_executor(None, patron_gorseli_olustur,
+                                          hp_simdi, PATRON_HP, hasar, crit,
+                                          guclu_darbe, crit_hasar,
+                                          interaction.user.display_name)
+
+        dosya = discord.File(buf, filename="saldiri.png")
+        embed = discord.Embed(
+            title=f"{SWORD} Saldırı!",
+            description=(
+                f"{hasar_aciklama}\n"
+                f"❤️ Patron canı: **{hp_simdi}/{PATRON_HP}**\n"
+                f"Kalan saldırı hakkın: **{kalan_hak}**"
+            ),
+            color=0xFF0000 if crit else 0xCC4400,
+        )
+        embed.set_image(url="attachment://saldiri.png")
+        await interaction.followup.send(embed=embed, file=dosya, ephemeral=True)
+
+        # Ana embed HP bar güncelle
         await self._embed_guncelle(hp_simdi)
 
         # Patron öldü mü?
@@ -238,9 +267,16 @@ class PatronCog(commands.Cog):
 
     # ── HP bar ───────────────────────────────────────────────────
     def _hp_bar(self, hp: int, max_hp: int, uzunluk: int = 10) -> str:
-        dolu = max(0, round((hp / max_hp) * uzunluk))
+        oran = hp / max_hp if max_hp else 0
+        dolu = max(0, round(oran * uzunluk))
         bos  = uzunluk - dolu
-        return "🟥" * dolu + "⬛" * bos
+        if oran > 0.6:
+            emoji = "🟩"   # Yeşil — sağlıklı
+        elif oran > 0.3:
+            emoji = "🟨"   # Sarı — yarı can
+        else:
+            emoji = "🟥"   # Kırmızı — kritik
+        return emoji * dolu + "⬛" * bos
 
     # ── Patron bitiş ─────────────────────────────────────────────
     async def _patron_bitis(self, kacan: bool = False):
