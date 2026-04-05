@@ -72,7 +72,7 @@ PERKLER = {
     },
     "patron_kritik_sans": {
         "isim":      "Kritik Şans",
-        "aciklama":  "%8 ekstra kritik vuruş ihtimali.",
+        "aciklama":  "%25 kritik vuruş ihtimali.",
         "maliyet":   5,
         "limit_turu": "gunluk",
         "sure_gun":  0,

@@ -12,7 +12,7 @@ from utils.logger import setup_logger
 from utils.patron_gorseli import patron_gorseli_olustur
 from config.coin_settings import (
     PATRON_KANAL_ID, PATRON_MIN_SAAT, PATRON_MAX_SAAT,
-    PATRON_HP, PATRON_SURE_DK, PATRON_MAX_SALDIRI,
+    PATRON_HP, PATRON_HP_SCALING, PATRON_SURE_DK, PATRON_MAX_SALDIRI,
     PATRON_HASAR_MIN, PATRON_HASAR_MAX, BILDIRIM_KANAL_ID,
     PATRON_MAX_INDIRIM_SN, PATRON_INDIRIM_ESIK,
 )
@@ -46,12 +46,14 @@ class PatronCog(commands.Cog):
         self.bot              = bot
         self.aktif_patron     = None   # {"mesaj", "patron_id", "bitis", "katilimcilar": {uid: hasar}}
         self.patron_hp        = 0
+        self.patron_max_hp    = 0      # Scaling ile büyüyen max HP
         self.kalan_sure       = 0
         self.indirilen_toplam = 0
         self.unique_yazanlar  = set()
         self._hp_lock         = asyncio.Lock()
         self.bot.loop.create_task(self._dongu())
         self.bot.loop.create_task(self._perk_bildirim_dongu())
+        self.bot.loop.create_task(self._haftalik_odul_dongu())
 
     # ── Ana döngü ────────────────────────────────────────────────
     async def _dongu(self):
@@ -91,15 +93,17 @@ class PatronCog(commands.Cog):
                 log.error(f"Patron kanalı fetch edilemedi: {e}")
                 return
 
-        patron_id    = str(uuid.uuid4())
-        self.patron_hp = PATRON_HP
-        bitis_zamani = datetime.now(timezone.utc) + timedelta(minutes=PATRON_SURE_DK)
+        patron_id          = str(uuid.uuid4())
+        self.patron_hp     = PATRON_HP
+        self.patron_max_hp = PATRON_HP
+        bitis_zamani       = datetime.now(timezone.utc) + timedelta(minutes=PATRON_SURE_DK)
 
         embed = discord.Embed(
             title="👹 Bir Patron Belirdi!",
             description=(
                 f"Güçlü bir patron sunucuya saldırıyor!\n\n"
-                f"❤️ **Can:** {self._hp_bar(PATRON_HP, PATRON_HP)} `{PATRON_HP}/{PATRON_HP}`\n\n"
+                f"❤️ **Can:** {self._hp_bar(PATRON_HP, PATRON_HP)} `{PATRON_HP}/{PATRON_HP}`\n"
+                f"⚠️ *Her yeni saldıran +{PATRON_HP_SCALING} HP ekler!*\n\n"
                 f"**⚔️ Saldırı hakkın:** {PATRON_MAX_SALDIRI}\n"
                 f"**⏳ Süre:** {PATRON_SURE_DK} dakika\n\n"
                 f"Aşağıdaki butona tıklayarak patrona saldır!\n"
@@ -167,12 +171,18 @@ class PatronCog(commands.Cog):
                 await interaction.followup.send(f"{FAIL_EMO} Patron zaten yenildi!", ephemeral=True)
                 return
 
+            # HP Scaling: ilk saldırıda patron güçlenir
+            ilk_saldiri = uid not in self.aktif_patron["katilimcilar"]
+            if ilk_saldiri:
+                self.patron_hp     += PATRON_HP_SCALING
+                self.patron_max_hp += PATRON_HP_SCALING
+                self.aktif_patron["katilimcilar"][uid] = 0
+
             self.patron_hp -= hasar
-            hp_simdi = max(0, self.patron_hp)
+            hp_simdi        = max(0, self.patron_hp)
+            max_hp_simdi    = self.patron_max_hp
 
             # Katılımcı kaydı (in-memory)
-            if uid not in self.aktif_patron["katilimcilar"]:
-                self.aktif_patron["katilimcilar"][uid] = 0
             self.aktif_patron["katilimcilar"][uid] += hasar
 
         # DB'ye kaydet
@@ -198,17 +208,19 @@ class PatronCog(commands.Cog):
         # Saldırı görseli oluştur (asyncio executor ile bloklamayı önle)
         loop = asyncio.get_event_loop()
         buf  = await loop.run_in_executor(None, patron_gorseli_olustur,
-                                          hp_simdi, PATRON_HP, hasar, crit,
+                                          hp_simdi, max_hp_simdi, hasar, crit,
                                           guclu_darbe, crit_hasar,
                                           interaction.user.display_name)
 
         dosya = discord.File(buf, filename="saldiri.png")
+        scaling_satir = f"\n⚠️ *İlk saldırın — Patron +{PATRON_HP_SCALING} HP kazandı!*" if ilk_saldiri else ""
         embed = discord.Embed(
             title=f"{SWORD} Saldırı!",
             description=(
                 f"{hasar_aciklama}\n"
-                f"❤️ Patron canı: **{hp_simdi}/{PATRON_HP}**\n"
+                f"❤️ Patron canı: **{hp_simdi}/{max_hp_simdi}**\n"
                 f"Kalan saldırı hakkın: **{kalan_hak}**"
+                f"{scaling_satir}"
             ),
             color=0xFF0000 if crit else 0xCC4400,
         )
@@ -230,7 +242,7 @@ class PatronCog(commands.Cog):
         if guclu:
             base += 8
 
-        crit_rate = 0.08 if await database.perk_gunluk_limit_kontrol(discord_id, "patron_kritik_sans") else 0.0
+        crit_rate = 0.25 if await database.perk_gunluk_limit_kontrol(discord_id, "patron_kritik_sans") else 0.0
         crit      = random.random() < crit_rate
 
         if crit:
@@ -258,7 +270,7 @@ class PatronCog(commands.Cog):
                 if "❤️ **Can:**" in line:
                     desc = desc.replace(
                         line,
-                        f"❤️ **Can:** {self._hp_bar(hp, PATRON_HP)} `{hp}/{PATRON_HP}`"
+                        f"❤️ **Can:** {self._hp_bar(hp, self.patron_max_hp)} `{hp}/{self.patron_max_hp}`"
                     )
                     break
             yeni_embed.description = desc
@@ -301,47 +313,185 @@ class PatronCog(commands.Cog):
         if kacan:
             embed = discord.Embed(
                 title="💨 Patron Kaçtı!",
-                description="Patron zamanında yenilemedii... Güçlerinizi birleştirin!",
+                description="Patron zamanında yenilemediniz... Güçlerinizi birleştirin!",
                 color=0x95A5A6,
             )
-            await kanal.send(embed=embed, delete_after=30)
+            # Kaçsa da bu baskındaki hasarları göster
+            siralama = await database.patron_hasar_siralaması(patron_id, limit=20)
+            if siralama:
+                embed.add_field(
+                    name="⚔️ Bu Baskındaki Hasarlar",
+                    value=self._hasar_listesi(siralama, kanal.guild),
+                    inline=False,
+                )
+            await kanal.send(embed=embed, delete_after=60)
             log.info(f"Patron kaçtı: {patron_id[:8]}")
             return
 
-        # Ödül dağıt
-        siralama = await database.patron_hasar_siralaması(patron_id, limit=3)
-        oduller  = [3, 2, 1]
-        madalya  = ["🥇", "🥈", "🥉"]
+        # Bu baskındaki tüm katılımcılar
+        siralama = await database.patron_hasar_siralaması(patron_id, limit=20)
 
         embed = discord.Embed(
             title=f"{SKULL} Patron Yenildi!",
-            description="Topluluk birlikte bu patronu devirdi! İşte en çok hasar verenler:",
+            description=(
+                "Topluluk birlikte bu patronu devirdi!\n\n"
+                "🏆 **Haftalık sıralamada** en çok hasar veren **3 kişi** Pazartesi "
+                f"00:00'da gem ödülü alacak!\n"
+                f"🥇 3 {GEM}  ·  🥈 2 {GEM}  ·  🥉 1 {GEM}"
+            ),
             color=0xFFD700,
         )
 
-        odul_satirlari = []
-        for i, row in enumerate(siralama):
-            gem_odul = oduller[i] if i < len(oduller) else 0
-            uye = kanal.guild.get_member(row["discord_id"])
-            isim = uye.display_name if uye else f"Kullanıcı#{row['discord_id']}"
-            mention = uye.mention if uye else isim
-            if gem_odul > 0:
-                await database.add_gem(
-                    row["discord_id"], gem_odul,
-                    tip="patron_odul",
-                    aciklama=f"Patron savaşı #{i+1}. sıra"
-                )
-                odul_satirlari.append(
-                    f"{madalya[i]} **{isim}** — {row['toplam_hasar']} hasar → **+{gem_odul} {GEM}**"
-                )
+        # Bu baskındaki hasar sıralaması
+        if siralama:
+            embed.add_field(
+                name="⚔️ Bu Baskındaki Hasar Sıralaması",
+                value=self._hasar_listesi(siralama, kanal.guild),
+                inline=False,
+            )
 
-        embed.add_field(name="🏆 Sıralama & Ödüller", value="\n".join(odul_satirlari) or "—", inline=False)
+        # Haftalık sıralama (top 5)
+        hafta_no = self._hafta_no()
+        haftalik = await database.patron_haftalik_siralama(hafta_no, limit=5)
+        if haftalik:
+            embed.add_field(
+                name=f"📊 Haftalık Sıralama (Top 5) — {hafta_no}",
+                value=self._haftalik_liste(haftalik, kanal.guild),
+                inline=False,
+            )
 
-        mentions = " ".join([kanal.guild.get_member(r["discord_id"]).mention
-                              for r in siralama if kanal.guild.get_member(r["discord_id"])])
+        embed.set_footer(text="Haftalık ödüller Pazartesi 00:00 TR'de dağıtılır.")
 
+        mentions = " ".join([
+            kanal.guild.get_member(r["discord_id"]).mention
+            for r in siralama[:3]
+            if kanal.guild.get_member(r["discord_id"])
+        ])
         await kanal.send(content=mentions if mentions else None, embed=embed)
-        log.info(f"Patron yenildi: {patron_id[:8]} — {len(siralama)} kişi ödül aldı")
+        log.info(f"Patron yenildi: {patron_id[:8]} — {len(siralama)} katılımcı")
+
+    # ── Yardımcı: hafta numarası (TR saatiyle ISO) ───────────────
+    def _hafta_no(self, dt: datetime = None) -> str:
+        TR_OFFSET = timedelta(hours=3)
+        if dt is None:
+            dt = datetime.now(timezone.utc)
+        tr_zaman = dt + TR_OFFSET
+        iso = tr_zaman.isocalendar()
+        return f"{iso[0]}-W{iso[1]:02d}"
+
+    # ── Yardımcı: baskın hasar listesi metni ─────────────────────
+    def _hasar_listesi(self, siralama, guild) -> str:
+        madalya = ["🥇", "🥈", "🥉"]
+        satirlar = []
+        for i, row in enumerate(siralama):
+            uye  = guild.get_member(row["discord_id"])
+            isim = uye.display_name if uye else f"Kullanıcı#{row['discord_id']}"
+            emo  = madalya[i] if i < 3 else f"`{i+1}.`"
+            satirlar.append(f"{emo} **{isim}** — {row['toplam_hasar']} hasar")
+        return "\n".join(satirlar) or "—"
+
+    # ── Yardımcı: haftalık liste metni ───────────────────────────
+    def _haftalik_liste(self, siralama, guild) -> str:
+        madalya = ["🥇", "🥈", "🥉"]
+        satirlar = []
+        for i, row in enumerate(siralama):
+            uye  = guild.get_member(row["discord_id"])
+            isim = uye.display_name if uye else f"Kullanıcı#{row['discord_id']}"
+            emo  = madalya[i] if i < 3 else f"`{i+1}.`"
+            satirlar.append(f"{emo} **{isim}** — {row['haftalik_hasar']} hasar")
+        return "\n".join(satirlar) or "—"
+
+    # ── Haftalık ödül döngüsü (Pazartesi 00:00 TR) ───────────────
+    async def _haftalik_odul_dongu(self):
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                await asyncio.sleep(1800)  # Her 30 dakikada kontrol
+
+                TR_OFFSET = timedelta(hours=3)
+                simdi_tr  = datetime.now(timezone.utc) + TR_OFFSET
+
+                # Sadece Pazartesi (weekday=0) saat 00:00-01:00 arasında çalış
+                if simdi_tr.weekday() != 0 or simdi_tr.hour != 0:
+                    continue
+
+                # Geçen haftanın numarası (Pazar sonu = Pazartesi sabahı önceki hafta)
+                gecen_hafta_dt = datetime.now(timezone.utc) - timedelta(days=1)
+                gecen_hafta_no = self._hafta_no(gecen_hafta_dt)
+
+                # Zaten verildi mi?
+                if await database.patron_haftalik_odul_verildi(gecen_hafta_no):
+                    await asyncio.sleep(3600)  # 1 saat atla, tekrar kontrol etme
+                    continue
+
+                # Haftalık sıralama al
+                siralama = await database.patron_haftalik_siralama(gecen_hafta_no, limit=20)
+                if not siralama:
+                    # Kimse patron oynamadı, yine de işaretleyelim
+                    await database.patron_haftalik_odul_kaydet(gecen_hafta_no, 0, 0, 0)
+                    continue
+
+                # Ödüller: {sira: gem}
+                odul_map  = {1: 3, 2: 2, 3: 1}
+                madalya   = {1: "🥇", 2: "🥈", 3: "🥉"}
+                odul_satirlari = []
+
+                sira_sayac   = 1
+                onceki_hasar = None
+                atanan_sira  = 1
+
+                for row in siralama:
+                    hasar = row["haftalik_hasar"]
+                    if hasar != onceki_hasar:
+                        atanan_sira  = sira_sayac
+                        onceki_hasar = hasar
+
+                    if atanan_sira > 3:
+                        break
+
+                    gem_odul = odul_map[atanan_sira]
+                    uid      = row["discord_id"]
+
+                    await database.add_gem(uid, gem_odul,
+                                           tip="haftalik_patron_odul",
+                                           aciklama=f"Haftalık patron {atanan_sira}. ({gecen_hafta_no})")
+                    await database.patron_haftalik_odul_kaydet(gecen_hafta_no, uid, atanan_sira, gem_odul)
+
+                    # Guild'den isim al
+                    isim = f"Kullanıcı#{uid}"
+                    for guild in self.bot.guilds:
+                        uye = guild.get_member(uid)
+                        if uye:
+                            isim = uye.display_name
+                            break
+
+                    emo = madalya.get(atanan_sira, "🏅")
+                    odul_satirlari.append(
+                        f"{emo} **{isim}** — {hasar} hasar → **+{gem_odul} {GEM}**"
+                    )
+                    sira_sayac += 1
+
+                # Duyuru
+                if PATRON_KANAL_ID:
+                    kanal = self.bot.get_channel(PATRON_KANAL_ID)
+                    if kanal:
+                        embed = discord.Embed(
+                            title=f"{GEM} Haftalık Patron Ödülleri Dağıtıldı!",
+                            description=(
+                                f"**{gecen_hafta_no}** haftasının en iyi patron avcıları:\n\n"
+                                + ("\n".join(odul_satirlari) or "Bu hafta kimse patron oynamadı.")
+                            ),
+                            color=0xFFD700,
+                        )
+                        embed.set_footer(text="Tebrikler! Gemleriniz hesabınıza eklendi.")
+                        await kanal.send(embed=embed)
+
+                log.info(f"Haftalık patron ödülleri dağıtıldı: {gecen_hafta_no} — {len(odul_satirlari)} kişi")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Haftalık ödül döngüsü hatası: {e}", exc_info=True)
 
     # ── Perk bitiş bildirim döngüsü ──────────────────────────────
     async def _perk_bildirim_dongu(self):
@@ -416,7 +566,7 @@ class PatronCog(commands.Cog):
         embed = discord.Embed(
             title="👹 Patron Durumu",
             description=(
-                f"❤️ **Can:** {self._hp_bar(hp, PATRON_HP)} `{hp}/{PATRON_HP}`\n"
+                f"❤️ **Can:** {self._hp_bar(hp, self.patron_max_hp)} `{hp}/{self.patron_max_hp}`\n"
                 f"⏳ **Kalan süre:** {kalan} dakika\n"
                 f"👥 **Katılımcı:** {katilimci} kişi"
             ),
