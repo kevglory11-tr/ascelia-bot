@@ -119,7 +119,14 @@ class HazineCog(commands.Cog):
             return
 
         guild = self.bot.get_guild(payload.guild_id)
+        if not guild:
+            return
         user = guild.get_member(payload.user_id)
+        if not user:
+            try:
+                user = await guild.fetch_member(payload.user_id)
+            except Exception:
+                return
 
         mesaj            = self.aktif_mesaj
         self.aktif_mesaj = None
