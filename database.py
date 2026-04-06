@@ -268,13 +268,12 @@ async def add_coins(discord_id: int, username: str, miktar: int, aciklama: str =
 
 async def remove_coins(discord_id: int, miktar: int, aciklama: str = None) -> bool:
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT bakiye FROM coins WHERE discord_id = $1", discord_id)
-        if not row or row["bakiye"] < miktar:
-            return False
-        await conn.execute(
-            "UPDATE coins SET bakiye = bakiye - $2 WHERE discord_id = $1",
+        row = await conn.fetchrow(
+            "UPDATE coins SET bakiye = bakiye - $2 WHERE discord_id = $1 AND bakiye >= $2 RETURNING bakiye",
             discord_id, miktar
         )
+        if not row:
+            return False
         await conn.execute(
             "INSERT INTO coin_log (discord_id, miktar, tip, aciklama) VALUES ($1, $2, 'harcama', $3)",
             discord_id, miktar, aciklama
@@ -586,7 +585,7 @@ async def patron_haftalik_siralama(hafta_no: str, limit: int = 10) -> list:
         return await conn.fetch("""
             SELECT discord_id, SUM(toplam_hasar) AS haftalik_hasar
             FROM patron_savas
-            WHERE TO_CHAR(zaman AT TIME ZONE 'Europe/Istanbul', 'IYYY-IW') = $1
+            WHERE TO_CHAR(zaman + INTERVAL '3 hours', 'IYYY-IW') = $1
             GROUP BY discord_id
             ORDER BY haftalik_hasar DESC
             LIMIT $2
