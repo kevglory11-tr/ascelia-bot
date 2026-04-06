@@ -12,7 +12,7 @@ Görevler:
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 import os
 
 import database
@@ -22,7 +22,13 @@ from config.coin_settings import (
 )
 
 log       = setup_logger("gunluk_gorev")
+_TR_OFF   = timedelta(hours=3)
 M2B       = "<:m2bcoin:1480481551337783437>"
+
+
+def _bugun_tr() -> date:
+    """Railway UTC sunucusunda Türkiye saatiyle (UTC+3) bugünün tarihini döndürür."""
+    return (datetime.now(timezone.utc) + _TR_OFF).date()
 OK        = "<a:olumlutick:1478524954688356494>"
 FAIL_EMO  = "<a:no:1478524993670479942>"
 COIN_ANIM = "<a:coin:1478390167310958734>"
@@ -79,14 +85,14 @@ GOREVLER = [
 
 # ── In-memory tracker (gün bazlı sıfırlanır) ──────────────────
 _tracker: dict[int, dict] = {}
-_son_gun: date = date.today()
+_son_gun: date = _bugun_tr()
 # Görev yenileme sayacı: {discord_id: yenileme_sayisi}
 _yenileme: dict[int, int] = {}
 
 
 def _tracker_kontrol():
     global _son_gun, _yenileme
-    bugun = date.today()
+    bugun = _bugun_tr()
     if bugun != _son_gun:
         _tracker.clear()
         _yenileme.clear()
@@ -111,7 +117,7 @@ def bugunun_gorevi(discord_id: int, ek: bool = False) -> dict:
     Görev Yenile perki kullanıldıysa _yenileme sayacı artar → farklı görev çıkar.
     """
     _tracker_kontrol()
-    bugun    = date.today().isoformat()
+    bugun    = _bugun_tr().isoformat()
     yenileme = _yenileme.get(discord_id, 0)
     seed     = hash(f"{discord_id}_{bugun}_{yenileme}") % len(GOREVLER)
 
@@ -150,7 +156,7 @@ class AdminGorevModal(discord.ui.Modal, title="Görev Kanıtı"):
         self.gorev = gorev
 
     async def on_submit(self, interaction: discord.Interaction):
-        bugun = date.today().isoformat()
+        bugun = _bugun_tr().isoformat()
         async with database.pool.acquire() as conn:
             mevcut = await conn.fetchval(
                 "SELECT id FROM gunluk_gorev_log WHERE discord_id=$1 AND gorev_id=$2 AND tarih=$3",
@@ -305,7 +311,7 @@ class GunlukGorevCog(commands.Cog):
         ek_hak=True ve ana görev tamamlandıysa ek görevi döndürür.
         Returns: (gorev, ek_mi)
         """
-        bugun  = date.today().isoformat()
+        bugun  = _bugun_tr().isoformat()
         ek_hak = await database.perk_haftalik_limit_kontrol(discord_id, "gunluk_gorev_satin_al")
 
         if ek_hak:
@@ -387,7 +393,7 @@ class GunlukGorevCog(commands.Cog):
 
     # ── Görev tamamlama ────────────────────────────────────────
     async def _tamamla(self, member: discord.Member, guild: discord.Guild, gorev: dict, ek: bool = False):
-        bugun = date.today().isoformat()
+        bugun = _bugun_tr().isoformat()
 
         # Görev Takviyesi perki aktif mi?
         takviye = await database.get_aktif_perk(member.id, "gorev_takviyesi")
@@ -431,7 +437,7 @@ class GunlukGorevCog(commands.Cog):
     @app_commands.command(name="günlük-görev", description="Bugünkü görevini görüntüle.")
     async def gunluk_gorev(self, interaction: discord.Interaction):
         uid   = interaction.user.id
-        bugun = date.today().isoformat()
+        bugun = _bugun_tr().isoformat()
 
         # Ek görev hakkı kontrolü
         ek_hak = await database.perk_haftalik_limit_kontrol(uid, "gunluk_gorev_satin_al")

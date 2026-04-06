@@ -5,10 +5,25 @@ database.py — PostgreSQL bağlantısı. M2Board Coin + EXP + Profil sistemi.
 import asyncpg
 import os
 import json
+from datetime import datetime, timezone, timedelta, date
 from utils.logger import setup_logger
 
 log = setup_logger("database")
 pool: asyncpg.Pool = None
+
+_TR = timedelta(hours=3)
+
+
+def _tr_bugun() -> date:
+    """Railway UTC sunucusunda Türkiye saatiyle (UTC+3) bugünün tarihini döndürür."""
+    return (datetime.now(timezone.utc) + _TR).date()
+
+
+def _tr_hafta_no() -> str:
+    """Türkiye saatiyle (UTC+3) ISO hafta numarasını döndürür. Örn: '2026-14'"""
+    now = datetime.now(timezone.utc) + _TR
+    iso = now.isocalendar()
+    return f"{iso[0]}-{iso[1]:02d}"
 
 
 async def init_pool() -> None:
@@ -489,10 +504,7 @@ async def set_aktif_perk(discord_id: int, perk_id: str, sure_gun: int = 0, sure_
 
 
 async def perk_haftalik_limit_kontrol(discord_id: int, perk_id: str) -> bool:
-    from datetime import datetime
-    now = datetime.now()
-    iso = now.isocalendar()
-    hafta_no = f"{iso[0]}-{iso[1]:02d}"
+    hafta_no = _tr_hafta_no()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT id FROM perk_satin_alma WHERE discord_id=$1 AND perk_id=$2 AND hafta_no=$3",
@@ -502,8 +514,7 @@ async def perk_haftalik_limit_kontrol(discord_id: int, perk_id: str) -> bool:
 
 
 async def perk_gunluk_limit_kontrol(discord_id: int, perk_id: str) -> bool:
-    from datetime import date
-    bugun = date.today()
+    bugun = _tr_bugun()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT id FROM perk_satin_alma WHERE discord_id=$1 AND perk_id=$2 AND tarih=$3",
@@ -513,11 +524,8 @@ async def perk_gunluk_limit_kontrol(discord_id: int, perk_id: str) -> bool:
 
 
 async def perk_satin_alma_kaydet(discord_id: int, perk_id: str) -> None:
-    from datetime import date, datetime
-    bugun = date.today()
-    now   = datetime.now()
-    iso   = now.isocalendar()
-    hafta_no = f"{iso[0]}-{iso[1]:02d}"
+    bugun    = _tr_bugun()
+    hafta_no = _tr_hafta_no()
     async with pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO perk_satin_alma (discord_id, perk_id, tarih, hafta_no) VALUES ($1,$2,$3,$4)",
