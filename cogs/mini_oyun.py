@@ -64,6 +64,17 @@ class DuelloKabulView(discord.ui.View):
         ok1 = await database.remove_coins(self.data.baslatan_id, self.data.bahis)
         ok2 = await database.remove_coins(self.data.rakip_id,    self.data.bahis)
         if not ok1 or not ok2:
+            # Başarılı olan çekimi iade et — coin kaybı olmasın
+            if ok1:
+                bas_uye = interaction.guild.get_member(self.data.baslatan_id)
+                bas_isim = bas_uye.display_name if bas_uye else "Oyuncu"
+                await database.add_coins(self.data.baslatan_id, bas_isim, self.data.bahis,
+                                         aciklama="Düello iade — karşı taraf yetersiz bakiye")
+            if ok2:
+                rak_uye = interaction.guild.get_member(self.data.rakip_id)
+                rak_isim = rak_uye.display_name if rak_uye else "Oyuncu"
+                await database.add_coins(self.data.rakip_id, rak_isim, self.data.bahis,
+                                         aciklama="Düello iade — karşı taraf yetersiz bakiye")
             await interaction.followup.send(f"{FAIL} Coin çekilemedi, düello iptal.", ephemeral=True)
             aktif_duellolar.pop(self.data.mesaj.id, None)
             return

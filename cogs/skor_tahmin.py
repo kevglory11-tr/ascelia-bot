@@ -192,7 +192,7 @@ class SkorTahminCog(commands.Cog):
             )
 
         try:
-            loop   = asyncio.get_event_loop()
+            loop   = asyncio.get_running_loop()
             banner = await loop.run_in_executor(
                 None, mac_banner_olustur, ev_logo, dep_logo, ev_takim, dep_takim
             )
