@@ -26,8 +26,8 @@ GEM_COIN_KURU     = 200   # 1 Gem = 200 Coin
 
 # ── Patron ────────────────────────────────────────────────
 PATRON_KANAL_ID   = int(os.getenv("PATRON_KANAL_ID", "0"))
-PATRON_MIN_SAAT   = 1            # Her 1 saatte bir baskın
-PATRON_MAX_SAAT   = 1            # Sabit 1 saat aralık
+PATRON_MIN_SAAT   = 1            # Min 1 saat aralık
+PATRON_MAX_SAAT   = 3            # Max 3 saat aralık
 PATRON_HP         = 750         # Sabit HP (scaling kaldırıldı)
 PATRON_HP_SCALING = 0           # Scaling devre dışı
 PATRON_SURE_DK    = 60          # Savaş süresi (dakika)
