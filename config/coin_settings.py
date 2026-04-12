@@ -4,7 +4,7 @@ import os
 # ── Hazine ────────────────────────────────────────────────
 HAZINE_KANAL_ID   = int(os.getenv("HAZINE_KANAL_ID", "0"))
 HAZINE_MIN_SAAT   = 1
-HAZINE_MAX_SAAT   = 5
+HAZINE_MAX_SAAT   = 2
 HAZINE_MIN_COIN   = 1
 HAZINE_MAX_COIN   = 200
 
@@ -26,8 +26,8 @@ GEM_COIN_KURU     = 200   # 1 Gem = 200 Coin
 
 # ── Patron ────────────────────────────────────────────────
 PATRON_KANAL_ID   = int(os.getenv("PATRON_KANAL_ID", "0"))
-PATRON_MIN_SAAT   = 20          # Günde 1 baskın — min 20 saat
-PATRON_MAX_SAAT   = 24          # Günde 1 baskın — max 24 saat
+PATRON_MIN_SAAT   = 1            # Her 1 saatte bir baskın
+PATRON_MAX_SAAT   = 1            # Sabit 1 saat aralık
 PATRON_HP         = 750         # Sabit HP (scaling kaldırıldı)
 PATRON_HP_SCALING = 0           # Scaling devre dışı
 PATRON_SURE_DK    = 60          # Savaş süresi (dakika)
