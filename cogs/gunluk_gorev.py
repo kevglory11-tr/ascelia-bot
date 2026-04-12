@@ -402,6 +402,32 @@ class GunlukGorevCog(commands.Cog):
                     member.id
                 )
 
+    # ── /rol-sync komutu ─────────────────────────────────────
+    @app_commands.command(name="rol-sync", description="Bir kullanıcının eksik görev rollerini kontrol edip verir.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(uye="Rolü senkronize edilecek kullanıcı")
+    async def rol_sync(self, interaction: discord.Interaction, uye: discord.Member):
+        await interaction.response.defer(ephemeral=True)
+        sayi = await database.get_lifetime_gorev_sayisi(uye.id)
+        verilen = []
+        for esik, rol_id in ROL_ESIKLERI.items():
+            if sayi >= esik and rol_id:
+                rol = interaction.guild.get_role(rol_id)
+                if rol and rol not in uye.roles:
+                    try:
+                        await uye.add_roles(rol, reason=f"Rol sync: {sayi} görev")
+                        verilen.append(rol.name)
+                    except Exception as e:
+                        log.error(f"Rol sync hatası: {e}")
+        if verilen:
+            await interaction.followup.send(
+                f"{OK} **{uye.display_name}** → {', '.join(verilen)} rolü verildi. (Toplam görev: {sayi})",
+                ephemeral=True)
+        else:
+            await interaction.followup.send(
+                f"ℹ️ **{uye.display_name}** için eksik rol yok. (Toplam görev: {sayi})",
+                ephemeral=True)
+
     # ── Görev tamamlama ────────────────────────────────────────
     async def _tamamla(self, member: discord.Member, guild: discord.Guild, gorev: dict, ek: bool = False):
         bugun = _bugun_tr().isoformat()
