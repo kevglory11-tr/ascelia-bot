@@ -9,8 +9,7 @@ HAZINE_MIN_COIN   = 1
 HAZINE_MAX_COIN   = 200
 
 # ── Günlük Giriş ──────────────────────────────────────────
-GUNLUK_MIN_COIN   = 1
-GUNLUK_MAX_COIN   = 50
+GUNLUK_COIN       = 50
 
 # ── Market (herkes için aynı) ─────────────────────────────
 # gem: satın alımda verilecek bonus Gem miktarı (0 = yok)

@@ -1,6 +1,5 @@
 """cogs/gunluk_giris.py — /günlük-giriş komutu."""
 
-import random
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -8,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 
 import database
 from utils.logger import setup_logger
-from config.coin_settings import GUNLUK_MIN_COIN, GUNLUK_MAX_COIN
+from config.coin_settings import GUNLUK_COIN
 
 log       = setup_logger("gunluk_giris")
 TR_OFFSET = timedelta(hours=3)
@@ -35,8 +34,7 @@ class GunlukGirisCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="günlük-giriş", description="Günlük 1–50 M2B Coin kazan!")
-    async def gunluk_giris(self, interaction: discord.Interaction):
+    async def _gunluk_giris(self, interaction: discord.Interaction):
         await interaction.response.defer()
         try:
             kayit  = await database.ensure_user(interaction.user.id, interaction.user.display_name)
@@ -56,7 +54,7 @@ class GunlukGirisCog(commands.Cog):
                 await interaction.followup.send(embed=embed)
                 return
 
-            coin      = random.randint(GUNLUK_MIN_COIN, GUNLUK_MAX_COIN)
+            coin      = GUNLUK_COIN
             yeni_seri = await database.set_son_giris(interaction.user.id, bugun)
 
             # Haftalık seri bonusu
@@ -101,6 +99,14 @@ class GunlukGirisCog(commands.Cog):
         except Exception as e:
             log.error(f"günlük-giriş hatası: {e}", exc_info=True)
             await interaction.followup.send(f"{FAIL} Bir hata oluştu.", ephemeral=True)
+
+    @app_commands.command(name="günlük-giriş", description="Günlük 50 M2B Coin kazan!")
+    async def gunluk_giris(self, interaction: discord.Interaction):
+        await self._gunluk_giris(interaction)
+
+    @app_commands.command(name="günlük", description="Günlük 50 M2B Coin kazan!")
+    async def gunluk(self, interaction: discord.Interaction):
+        await self._gunluk_giris(interaction)
 
 
 async def setup(bot: commands.Bot):
