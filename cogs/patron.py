@@ -12,7 +12,7 @@ from utils.logger import setup_logger
 from utils.patron_gorseli import patron_gorseli_olustur
 from config.coin_settings import (
     PATRON_KANAL_ID, PATRON_MIN_SAAT, PATRON_MAX_SAAT,
-    PATRON_HP, PATRON_HP_SCALING, PATRON_SURE_DK, PATRON_MAX_SALDIRI,
+    PATRON_HP, PATRON_SURE_DK, PATRON_MAX_SALDIRI,
     PATRON_HASAR_MIN, PATRON_HASAR_MAX, BILDIRIM_KANAL_ID,
     PATRON_MAX_INDIRIM_SN, PATRON_INDIRIM_ESIK,
 )
@@ -102,8 +102,7 @@ class PatronCog(commands.Cog):
             title="👹 Bir Patron Belirdi!",
             description=(
                 f"Güçlü bir patron sunucuya saldırıyor!\n\n"
-                f"❤️ **Can:** {self._hp_bar(PATRON_HP, PATRON_HP)} `{PATRON_HP}/{PATRON_HP}`\n"
-                f"⚠️ *Her yeni saldıran +{PATRON_HP_SCALING} HP ekler!*\n\n"
+                f"❤️ **Can:** {self._hp_bar(PATRON_HP, PATRON_HP)} `{PATRON_HP}/{PATRON_HP}`\n\n"
                 f"**⚔️ Saldırı hakkın:** {PATRON_MAX_SALDIRI}\n"
                 f"**⏳ Süre:** {PATRON_SURE_DK} dakika\n\n"
                 f"Aşağıdaki butona tıklayarak patrona saldır!\n"
@@ -172,11 +171,8 @@ class PatronCog(commands.Cog):
                 await interaction.followup.send(f"{FAIL_EMO} Patron zaten yenildi!", ephemeral=True)
                 return
 
-            # HP Scaling: ilk saldırıda patron güçlenir
             ilk_saldiri = uid not in self.aktif_patron["katilimcilar"]
             if ilk_saldiri:
-                self.patron_hp     += PATRON_HP_SCALING
-                self.patron_max_hp += PATRON_HP_SCALING
                 self.aktif_patron["katilimcilar"][uid] = 0
 
             self.patron_hp -= hasar
@@ -213,14 +209,12 @@ class PatronCog(commands.Cog):
                                           interaction.user.display_name)
 
         dosya = discord.File(buf, filename="saldiri.png")
-        scaling_satir = f"\n⚠️ *İlk saldırın — Patron +{PATRON_HP_SCALING} HP kazandı!*" if ilk_saldiri else ""
         embed = discord.Embed(
             title=f"{SWORD} Saldırı!",
             description=(
                 f"{hasar_aciklama}\n"
                 f"❤️ Patron canı: **{hp_simdi}/{max_hp_simdi}**\n"
                 f"Kalan saldırı hakkın: **{kalan_hak}**"
-                f"{scaling_satir}"
             ),
             color=0xFF0000 if crit else 0xCC4400,
         )

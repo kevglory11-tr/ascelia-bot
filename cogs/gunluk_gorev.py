@@ -227,8 +227,14 @@ class AdminOnayView(discord.ui.View):
                 isim = uye_obj.display_name if uye_obj else self.isim
                 await database.add_coins(self.discord_id, isim, self.odul_coin,
                                          aciklama=f"Günlük görev onayı: {self.gorev_id}")
+        # Rol kontrolü — admin onaylı görevlerde de rol terfi yapılmalı
+        uye = interaction.guild.get_member(self.discord_id)
+        if uye:
+            cog = interaction.client.get_cog("GunlukGorevCog")
+            if cog:
+                await cog._rol_kontrol(uye, interaction.guild)
+
         try:
-            uye = interaction.guild.get_member(self.discord_id)
             if uye:
                 if self.mp_odulu:
                     msg = (f"{OK} **Günlük görevin onaylandı!**\n"
@@ -371,15 +377,20 @@ class GunlukGorevCog(commands.Cog):
     # ── Rol kontrol ────────────────────────────────────────────
     async def _rol_kontrol(self, member: discord.Member, guild: discord.Guild):
         sayi = await database.get_lifetime_gorev_sayisi(member.id)
+        log.info(f"Rol kontrol: {member} → toplam görev: {sayi}")
         for esik, rol_id in ROL_ESIKLERI.items():
+            log.debug(f"  Eşik {esik}, rol_id={rol_id}, sayi>={esik}: {sayi >= esik}")
             if sayi >= esik and rol_id:
                 rol = guild.get_role(rol_id)
-                if rol and rol not in member.roles:
+                if rol is None:
+                    log.warning(f"Rol bulunamadı: esik={esik}, rol_id={rol_id} — guild cache'de yok!")
+                    continue
+                if rol not in member.roles:
                     try:
                         await member.add_roles(rol, reason=f"Günlük görev: {sayi} görev tamamlandı")
                         log.info(f"Rol verildi: {member} → {rol.name}")
                     except discord.Forbidden:
-                        log.warning(f"Rol verilemedi (yetki): {member} → {rol.name}")
+                        log.warning(f"Rol verilemedi (yetki yok): {member} → {rol.name} (bot rolü hiyerarşide daha aşağıda olabilir)")
                     except Exception as e:
                         log.error(f"Rol verme hatası: {e}")
 
