@@ -547,6 +547,58 @@ class PatronCog(commands.Cog):
         embed.set_footer(text=f"Hafta: {hafta_no} • Ödüller Pazartesi 00:00 TR'de dağıtılır.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    # ── /patron-test ─────────────────────────────────────────────
+    @app_commands.command(name="patron-test", description="Bulunduğun kanala test patronu spawn et.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def patron_test(self, interaction: discord.Interaction):
+        if self.aktif_patron:
+            await interaction.response.send_message(f"{FAIL_EMO} Zaten aktif bir patron var!", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        kanal = interaction.channel
+        patron_id          = f"test-{uuid.uuid4()}"
+        self.patron_hp     = PATRON_HP
+        self.patron_max_hp = PATRON_HP
+        bitis_zamani       = datetime.now(timezone.utc) + timedelta(minutes=PATRON_SURE_DK)
+
+        embed = discord.Embed(
+            title="👹 Patron Baskını! *(TEST)*",
+            description=(
+                f"❤️ {self._hp_bar(PATRON_HP, PATRON_HP)} `{PATRON_HP}/{PATRON_HP}`\n"
+                f"⚔️ `{PATRON_MAX_SALDIRI} hak` · ⏳ `{PATRON_SURE_DK} dk` · 🏆 `{3}/{2}/{1}` {GEM}"
+            ),
+            color=0xCC0000,
+        )
+        embed.set_footer(text=f"{patron_id[:8]} • TEST MODU")
+
+        view = SaldiriView(self)
+
+        try:
+            dosya = discord.File(PATRON_IMG, filename="patron.png")
+            embed.set_image(url="attachment://patron.png")
+            mesaj = await kanal.send(file=dosya, embed=embed, view=view)
+        except Exception:
+            mesaj = await kanal.send(embed=embed, view=view)
+
+        self.aktif_patron = {
+            "mesaj":      mesaj,
+            "patron_id":  patron_id,
+            "bitis":      bitis_zamani,
+            "katilimcilar": {},
+        }
+
+        log.info(f"TEST patron doğdu: {patron_id[:8]} kanal: {kanal.id}")
+        await interaction.followup.send("✅ Test patronu spawn edildi!", ephemeral=True)
+
+        # Süre dolunca bitir
+        async def _test_sure():
+            await asyncio.sleep(PATRON_SURE_DK * 60)
+            if self.aktif_patron and self.aktif_patron["patron_id"] == patron_id:
+                await self._patron_bitis(kacan=True)
+        self.bot.loop.create_task(_test_sure())
+
     # ── /patron-durum ────────────────────────────────────────────
     @app_commands.command(name="patron-durum", description="Aktif patronun durumunu göster.")
     async def patron_durum(self, interaction: discord.Interaction):
