@@ -153,10 +153,10 @@ class HazineCog(commands.Cog):
             with open(SANDIK_ACIK, "rb") as f:
                 dosya = discord.File(f, filename="sandik_acik.jpg")
                 embed.set_image(url="attachment://sandik_acik.jpg")
-                await mesaj.channel.send(file=dosya, embed=embed)
+                await mesaj.channel.send(file=dosya, embed=embed, delete_after=15)
         except Exception:
             embed.set_thumbnail(url=user.display_avatar.url)
-            await mesaj.channel.send(embed=embed)
+            await mesaj.channel.send(embed=embed, delete_after=15)
 
         log.info(f"Hazine: {user} → {coin} coin")
 

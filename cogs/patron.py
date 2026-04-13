@@ -293,9 +293,9 @@ class PatronCog(commands.Cog):
         patron_id = patron["patron_id"]
         kanal     = mesaj.channel
 
-        # View'ı kapat
+        # Ana patron mesajını sil
         try:
-            await mesaj.edit(view=None)
+            await mesaj.delete()
         except Exception:
             pass
 
@@ -315,7 +315,7 @@ class PatronCog(commands.Cog):
                 description="Süre doldu, patron kaçtı!",
                 color=0x95A5A6,
             )
-            await kanal.send(embed=embed, delete_after=60)
+            await kanal.send(embed=embed, delete_after=10)
             # Sıralamayı sonuç kanalına at
             if siralama:
                 s_embed = discord.Embed(
@@ -331,13 +331,13 @@ class PatronCog(commands.Cog):
         hafta_no = self._hafta_no()
         haftalik = await database.patron_haftalik_siralama(hafta_no, limit=5)
 
-        # Patron kanalına kısa bilgi
+        # Patron kanalına kısa bilgi (10 sn sonra silinir)
         embed = discord.Embed(
             title=f"{SKULL} Patron Yenildi!",
             description=f"Topluluk patronu devirdi! Sıralama <#{SONUC_KANAL_ID}> kanalında.",
             color=0xFFD700,
         )
-        await kanal.send(embed=embed)
+        await kanal.send(embed=embed, delete_after=10)
 
         # Sonuç kanalına detaylı sıralama
         hasar_txt = self._hasar_listesi(siralama, kanal.guild) if siralama else "—"
