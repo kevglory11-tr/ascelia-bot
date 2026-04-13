@@ -99,20 +99,14 @@ class PatronCog(commands.Cog):
         bitis_zamani       = datetime.now(timezone.utc) + timedelta(minutes=PATRON_SURE_DK)
 
         embed = discord.Embed(
-            title="👹 Bir Patron Belirdi!",
+            title="👹 Patron Baskını!",
             description=(
-                f"Güçlü bir patron sunucuya saldırıyor!\n\n"
-                f"❤️ **Can:** {self._hp_bar(PATRON_HP, PATRON_HP)} `{PATRON_HP}/{PATRON_HP}`\n\n"
-                f"**⚔️ Saldırı hakkın:** {PATRON_MAX_SALDIRI}\n"
-                f"**⏳ Süre:** {PATRON_SURE_DK} dakika\n\n"
-                f"Aşağıdaki butona tıklayarak patrona saldır!\n"
-                f"Hafta sonunda en çok hasar veren **3 kişi** Gem ödülü kazanır!\n\n"
-                f"🥇 **1.** → 3 {GEM}  |  🥈 **2.** → 2 {GEM}  |  🥉 **3.** → 1 {GEM}\n"
-                f"*(Ödüller her Pazartesi 00:00 TR'de dağıtılır)*"
+                f"❤️ {self._hp_bar(PATRON_HP, PATRON_HP)} `{PATRON_HP}/{PATRON_HP}`\n"
+                f"⚔️ `{PATRON_MAX_SALDIRI} hak` · ⏳ `{PATRON_SURE_DK} dk` · 🏆 `{3}/{2}/{1}` {GEM}"
             ),
             color=0xCC0000,
         )
-        embed.set_footer(text=f"Patron ID: {patron_id[:8]} • {PATRON_SURE_DK} dakika içinde yenilmeli!")
+        embed.set_footer(text=f"{patron_id[:8]} • Top 3 hasar → Pazartesi gem ödülü")
 
         view = SaldiriView(self)
 
@@ -261,10 +255,10 @@ class PatronCog(commands.Cog):
             # HP satırını güncelle
             desc = embed.description or ""
             for line in desc.split("\n"):
-                if "❤️ **Can:**" in line:
+                if "❤️" in line and "`" in line:
                     desc = desc.replace(
                         line,
-                        f"❤️ **Can:** {self._hp_bar(hp, self.patron_max_hp)} `{hp}/{self.patron_max_hp}`"
+                        f"❤️ {self._hp_bar(hp, self.patron_max_hp)} `{hp}/{self.patron_max_hp}`"
                     )
                     break
             yeni_embed.description = desc
@@ -306,56 +300,36 @@ class PatronCog(commands.Cog):
             pass
 
         if kacan:
+            siralama = await database.patron_hasar_siralaması(patron_id, limit=10)
+            hasar_txt = f"\n{self._hasar_listesi(siralama, kanal.guild)}" if siralama else ""
             embed = discord.Embed(
                 title="💨 Patron Kaçtı!",
-                description="Patron zamanında yenilemediniz... Güçlerinizi birleştirin!",
+                description=f"Süre doldu, patron kaçtı!{hasar_txt}",
                 color=0x95A5A6,
             )
-            # Kaçsa da bu baskındaki hasarları göster
-            siralama = await database.patron_hasar_siralaması(patron_id, limit=20)
-            if siralama:
-                embed.add_field(
-                    name="⚔️ Bu Baskındaki Hasarlar",
-                    value=self._hasar_listesi(siralama, kanal.guild),
-                    inline=False,
-                )
             await kanal.send(embed=embed, delete_after=60)
             log.info(f"Patron kaçtı: {patron_id[:8]}")
             return
 
-        # Bu baskındaki tüm katılımcılar
-        siralama = await database.patron_hasar_siralaması(patron_id, limit=20)
+        siralama = await database.patron_hasar_siralaması(patron_id, limit=10)
+        hafta_no = self._hafta_no()
+        haftalik = await database.patron_haftalik_siralama(hafta_no, limit=5)
+
+        hasar_txt = self._hasar_listesi(siralama, kanal.guild) if siralama else ""
+        haftalik_txt = self._haftalik_liste(haftalik, kanal.guild) if haftalik else ""
+
+        desc_parts = [f"**Patron yenildi!** 🏆 Top 3 → `{3}/{2}/{1}` {GEM}"]
+        if hasar_txt:
+            desc_parts.append(f"**Baskın Sıralaması:**\n{hasar_txt}")
+        if haftalik_txt:
+            desc_parts.append(f"**Haftalık Top 5:**\n{haftalik_txt}")
 
         embed = discord.Embed(
             title=f"{SKULL} Patron Yenildi!",
-            description=(
-                "Topluluk birlikte bu patronu devirdi!\n\n"
-                "🏆 **Haftalık sıralamada** en çok hasar veren **3 kişi** Pazartesi "
-                f"00:00'da gem ödülü alacak!\n"
-                f"🥇 3 {GEM}  ·  🥈 2 {GEM}  ·  🥉 1 {GEM}"
-            ),
+            description="\n\n".join(desc_parts),
             color=0xFFD700,
         )
-
-        # Bu baskındaki hasar sıralaması
-        if siralama:
-            embed.add_field(
-                name="⚔️ Bu Baskındaki Hasar Sıralaması",
-                value=self._hasar_listesi(siralama, kanal.guild),
-                inline=False,
-            )
-
-        # Haftalık sıralama (top 5)
-        hafta_no = self._hafta_no()
-        haftalik = await database.patron_haftalik_siralama(hafta_no, limit=5)
-        if haftalik:
-            embed.add_field(
-                name=f"📊 Haftalık Sıralama (Top 5) — {hafta_no}",
-                value=self._haftalik_liste(haftalik, kanal.guild),
-                inline=False,
-            )
-
-        embed.set_footer(text="Haftalık ödüller Pazartesi 00:00 TR'de dağıtılır.")
+        embed.set_footer(text=f"Ödüller Pazartesi 00:00 TR · {hafta_no}")
 
         mentions = " ".join([
             kanal.guild.get_member(r["discord_id"]).mention
@@ -572,6 +546,58 @@ class PatronCog(commands.Cog):
 
         embed.set_footer(text=f"Hafta: {hafta_no} • Ödüller Pazartesi 00:00 TR'de dağıtılır.")
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ── /patron-test ─────────────────────────────────────────────
+    @app_commands.command(name="patron-test", description="Bulunduğun kanala test patronu spawn et.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def patron_test(self, interaction: discord.Interaction):
+        if self.aktif_patron:
+            await interaction.response.send_message(f"{FAIL_EMO} Zaten aktif bir patron var!", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        kanal = interaction.channel
+        patron_id          = f"test-{uuid.uuid4()}"
+        self.patron_hp     = PATRON_HP
+        self.patron_max_hp = PATRON_HP
+        bitis_zamani       = datetime.now(timezone.utc) + timedelta(minutes=PATRON_SURE_DK)
+
+        embed = discord.Embed(
+            title="👹 Patron Baskını! *(TEST)*",
+            description=(
+                f"❤️ {self._hp_bar(PATRON_HP, PATRON_HP)} `{PATRON_HP}/{PATRON_HP}`\n"
+                f"⚔️ `{PATRON_MAX_SALDIRI} hak` · ⏳ `{PATRON_SURE_DK} dk` · 🏆 `{3}/{2}/{1}` {GEM}"
+            ),
+            color=0xCC0000,
+        )
+        embed.set_footer(text=f"{patron_id[:8]} • TEST MODU")
+
+        view = SaldiriView(self)
+
+        try:
+            dosya = discord.File(PATRON_IMG, filename="patron.png")
+            embed.set_image(url="attachment://patron.png")
+            mesaj = await kanal.send(file=dosya, embed=embed, view=view)
+        except Exception:
+            mesaj = await kanal.send(embed=embed, view=view)
+
+        self.aktif_patron = {
+            "mesaj":      mesaj,
+            "patron_id":  patron_id,
+            "bitis":      bitis_zamani,
+            "katilimcilar": {},
+        }
+
+        log.info(f"TEST patron doğdu: {patron_id[:8]} kanal: {kanal.id}")
+        await interaction.followup.send("✅ Test patronu spawn edildi!", ephemeral=True)
+
+        # Süre dolunca bitir
+        async def _test_sure():
+            await asyncio.sleep(PATRON_SURE_DK * 60)
+            if self.aktif_patron and self.aktif_patron["patron_id"] == patron_id:
+                await self._patron_bitis(kacan=True)
+        self.bot.loop.create_task(_test_sure())
 
     # ── /patron-durum ────────────────────────────────────────────
     @app_commands.command(name="patron-durum", description="Aktif patronun durumunu göster.")
