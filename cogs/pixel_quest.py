@@ -251,7 +251,7 @@ class PixelQuestCog(commands.Cog):
             "saldiri": irk["saldiri"],
             "savunma": irk["savunma"],
             "hiz": irk["hiz"],
-            "max_hp": irk["max_hp"],
+            "max_hp": irk["hp"],
         }
 
         async with database.pool.acquire() as conn:
