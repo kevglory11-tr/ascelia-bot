@@ -1,4 +1,4 @@
-"""cogs/pixel_quest.py — Pixel Quest RPG oyunu."""
+"""cogs/pixel_quest.py — Pixel Quest RPG oyunu (v2 — dengeli)."""
 
 import os
 import random
@@ -15,6 +15,9 @@ from config.pixel_quest_data import (
     IRKLAR, CANAVARLAR, LOOT_KATEGORILERI, LOOT_ISIMLERI,
     EKIPMANLAR, EKIPMAN_TURLERI, IKSIRLER,
     SEVIYE_XP, NADIRLIK_RENK, NADIRLIK_EMOJI, SAVAS_COOLDOWN,
+    SEVIYE_STAT_BONUS, DUKKAN, MALZEME_FIYAT,
+    MALZEME_DROP_SANS, EKIPMAN_DROP_SANS, IKSIR_DROP_SANS,
+    MOB_IKON_KLASOR,
 )
 
 log = setup_logger("pixel_quest")
@@ -52,19 +55,24 @@ def _hp_bar(hp: int, max_hp: int, uzunluk: int = 10) -> str:
 
 
 def _canavar_sec(seviye: int):
-    if seviye >= 6:
-        havuz = CANAVARLAR["chaos"]
+    """Seviyeye göre canavar havuzundan seç."""
+    if seviye >= 15:
+        tier = "elit"
+    elif seviye >= 8:
+        tier = "chaos"
     else:
-        havuz = CANAVARLAR["low"]
-    return random.choice(havuz)
+        tier = "low"
+    return random.choice(CANAVARLAR[tier]), tier
 
 
 def _loot_drop(canavar_tier: str) -> Optional[dict]:
     """Canavar öldürüldüğünde loot düşürme şansı."""
-    if random.random() > 0.45:  # %45 şans
+    if random.random() > MALZEME_DROP_SANS:
         return None
 
-    if canavar_tier == "chaos":
+    if canavar_tier == "elit":
+        kategori_key = random.choice(["undead", "pirate"])
+    elif canavar_tier == "chaos":
         kategori_key = random.choice(["pirate", "undead"])
     else:
         kategori_key = random.choice(["goblin", "general"])
@@ -84,8 +92,7 @@ def _loot_drop(canavar_tier: str) -> Optional[dict]:
 
 def _ekipman_drop(seviye: int) -> Optional[dict]:
     """Savaş sonrası ekipman düşürme şansı."""
-    sans = 0.08  # %8
-    if random.random() > sans:
+    if random.random() > EKIPMAN_DROP_SANS:
         return None
 
     tur = random.choice(["silah", "kalkan", "kemer"])
@@ -98,8 +105,8 @@ def _ekipman_drop(seviye: int) -> Optional[dict]:
     for e in uygun:
         if e["nadirlik"] == "yaygın":     agirliklar.append(50)
         elif e["nadirlik"] == "uncommon": agirliklar.append(25)
-        elif e["nadirlik"] == "nadir":    agirliklar.append(12)
-        elif e["nadirlik"] == "efsanevi": agirliklar.append(5)
+        elif e["nadirlik"] == "nadir":    agirliklar.append(10)
+        elif e["nadirlik"] == "efsanevi": agirliklar.append(3)
         elif e["nadirlik"] == "mitik":    agirliklar.append(1)
         else: agirliklar.append(10)
 
@@ -108,8 +115,8 @@ def _ekipman_drop(seviye: int) -> Optional[dict]:
 
 
 def _iksir_drop() -> Optional[dict]:
-    """İksir düşürme şansı (%12)."""
-    if random.random() > 0.12:
+    """İksir düşürme şansı."""
+    if random.random() > IKSIR_DROP_SANS:
         return None
     agirliklar = []
     for ik in IKSIRLER:
@@ -119,6 +126,22 @@ def _iksir_drop() -> Optional[dict]:
         elif ik["nadirlik"] == "efsanevi": agirliklar.append(3)
         else: agirliklar.append(10)
     return random.choices(IKSIRLER, weights=agirliklar, k=1)[0]
+
+
+# ── Savaş mekaniği ──────────────────────────────────────
+def _hasar_hesapla(saldiri: int, savunma: int) -> int:
+    """Hasar = saldırı * rastgele(0.85-1.15) - savunma * 0.4"""
+    return max(1, round(saldiri * random.uniform(0.85, 1.15) - savunma * 0.4))
+
+
+def _kritik_mi(hiz: int) -> bool:
+    """Kritik vuruş şansı: hız * 0.8%  (Peri:16%, Ork:8%, Cüce:4%)"""
+    return random.random() < (hiz * 0.008)
+
+
+def _dodge_mi(hiz: int) -> bool:
+    """Dodge şansı: hız * 0.5%  (Peri:10%, Ork:5%, Cüce:2.5%)"""
+    return random.random() < (hiz * 0.005)
 
 
 # ── Irk Seçim View ───────────────────────────────────────
@@ -145,6 +168,7 @@ class PixelQuestCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._cooldowns: dict[int, float] = {}
+        self._buffs: dict[int, dict] = {}  # geçici iksir buffları
 
     async def cog_load(self):
         async with database.pool.acquire() as conn:
@@ -213,10 +237,9 @@ class PixelQuestCog(commands.Cog):
                 VALUES ($1, $2, $3, $4, $5)
             """, interaction.user.id, irk_key, avatar_ikon, irk["hp"], irk["hp"])
 
-        # Avatar görseli
         avatar_path = _icon_path(irk["avatar_klasor"], avatar_ikon)
         embed = discord.Embed(
-            title=f"⚔️ Karakter Oluşturuldu!",
+            title="⚔️ Karakter Oluşturuldu!",
             description=(
                 f"**{interaction.user.display_name}** olarak **{irk['emoji']} {irk['isim']}** ırkını seçtin!\n\n"
                 f"❤️ HP: **{irk['hp']}**\n"
@@ -244,16 +267,19 @@ class PixelQuestCog(commands.Cog):
                 "SELECT * FROM pq_karakter WHERE discord_id=$1", discord_id)
             return dict(row) if row else None
 
-    # ── Stat hesapla (base + ekipman) ────────────────────────
+    # ── Stat hesapla (base + seviye büyümesi + ekipman) ──────
     async def _get_statlar(self, discord_id: int, karakter: dict) -> dict:
         irk = IRKLAR[karakter["irk"]]
+        seviye = _seviye_hesapla(karakter["xp"])
+
         statlar = {
-            "saldiri": irk["saldiri"],
-            "savunma": irk["savunma"],
-            "hiz": irk["hiz"],
-            "max_hp": irk["max_hp"],
+            "saldiri": irk["saldiri"] + (seviye - 1) * SEVIYE_STAT_BONUS["saldiri"],
+            "savunma": irk["savunma"] + (seviye - 1) * SEVIYE_STAT_BONUS["savunma"],
+            "hiz": irk["hiz"],  # hız seviyeyle artmaz — ırk avantajı kalıcı
+            "max_hp": irk["hp"] + (seviye - 1) * SEVIYE_STAT_BONUS["hp"],
         }
 
+        # Ekipman bonusları
         async with database.pool.acquire() as conn:
             ekipmanlar = await conn.fetch(
                 "SELECT * FROM pq_envanter WHERE discord_id=$1 AND tur IN ('silah_kusanili','kalkan_kusanili','kemer_kusanili')",
@@ -265,6 +291,12 @@ class PixelQuestCog(commands.Cog):
                     statlar["savunma"] += ek["bonus"]
                 elif "kemer" in ek["tur"]:
                     statlar["max_hp"] += ek["bonus"]
+
+        # Geçici iksir buffları
+        buff = self._buffs.get(discord_id, {})
+        statlar["saldiri"] += buff.get("saldiri", 0)
+        statlar["savunma"] += buff.get("savunma", 0)
+        statlar["hiz"] += buff.get("hiz", 0)
 
         return statlar
 
@@ -284,12 +316,17 @@ class PixelQuestCog(commands.Cog):
             title="⚔️ Pixel Quest — Irk Seçimi",
             description=(
                 "Macerana başlamak için bir ırk seç!\n\n"
-                "🧔 **Cüce** — Yüksek savunma, düşük hız\n"
+                "🧔 **Cüce** — Yüksek savunma ve HP, düşük saldırı ve hız\n"
                 f"  ❤️ {IRKLAR['cuece']['hp']} HP · ⚔️ {IRKLAR['cuece']['saldiri']} · 🛡️ {IRKLAR['cuece']['savunma']} · 💨 {IRKLAR['cuece']['hiz']}\n\n"
-                "🧚 **Peri** — Yüksek büyü, düşük HP\n"
+                "🧚 **Peri** — Yüksek saldırı ve hız, düşük HP ve savunma\n"
                 f"  ❤️ {IRKLAR['peri']['hp']} HP · ⚔️ {IRKLAR['peri']['saldiri']} · 🛡️ {IRKLAR['peri']['savunma']} · 💨 {IRKLAR['peri']['hiz']}\n\n"
-                "🐗 **Ork** — Yüksek saldırı, düşük savunma\n"
+                "🐗 **Ork** — Dengeli savaşçı, güçlü saldırı\n"
                 f"  ❤️ {IRKLAR['ork']['hp']} HP · ⚔️ {IRKLAR['ork']['saldiri']} · 🛡️ {IRKLAR['ork']['savunma']} · 💨 {IRKLAR['ork']['hiz']}\n\n"
+                "```\n"
+                "💡 Hız → Kritik vuruş & kaçınma şansı\n"
+                "🛡️ Savunma → Hasar azaltma\n"
+                "⚔️ Saldırı → Vuruş gücü\n"
+                "```"
             ),
             color=0xFFD700,
         )
@@ -316,55 +353,101 @@ class PixelQuestCog(commands.Cog):
             return
         self._cooldowns[interaction.user.id] = now
 
-        # HP kontrolü
+        # HP kontrolü — ölüyse yeniden doğ
         if karakter["hp"] <= 0:
-            # Yeniden doğ
             async with database.pool.acquire() as conn:
                 await conn.execute(
                     "UPDATE pq_karakter SET hp=max_hp WHERE discord_id=$1",
                     interaction.user.id)
             karakter["hp"] = karakter["max_hp"]
 
-        # Stat hesapla
+        # Stat hesapla (seviye + ekipman + buff)
         statlar = await self._get_statlar(interaction.user.id, karakter)
         seviye = _seviye_hesapla(karakter["xp"])
 
+        # Buff kullanıldı — temizle
+        self._buffs.pop(interaction.user.id, None)
+
+        # Max HP'yi güncelle (seviye büyümesi)
+        gercek_max_hp = statlar["max_hp"]
+
         # Canavar seç
-        canavar = _canavar_sec(seviye)
-        mob_tier = "chaos" if seviye >= 6 else "low"
+        canavar, mob_tier = _canavar_sec(seviye)
 
-        # Savaş hesaplaması
-        oyuncu_hasar = max(1, statlar["saldiri"] + random.randint(-3, 5) - canavar["savunma"] // 3)
-        canavar_hasar = max(1, canavar["saldiri"] + random.randint(-3, 3) - statlar["savunma"] // 3)
-
-        # Hız avantajı — ilk vuran
-        oyuncu_ilk = statlar["hiz"] + random.randint(0, 5) >= 10
-
-        canavar_hp = canavar["hp"]
+        # ── Savaş simülasyonu ────────────────────────────────
         oyuncu_hp = karakter["hp"]
+        canavar_hp = canavar["hp"]
         turlar = []
         tur_sayisi = 0
 
-        while canavar_hp > 0 and oyuncu_hp > 0 and tur_sayisi < 20:
+        # Hız: kim önce vuruyor
+        oyuncu_ilk = statlar["hiz"] >= canavar.get("hiz", 8)
+
+        while canavar_hp > 0 and oyuncu_hp > 0 and tur_sayisi < 25:
             tur_sayisi += 1
+
             if oyuncu_ilk:
-                vuruş = oyuncu_hasar + random.randint(-2, 3)
-                canavar_hp -= vuruş
-                turlar.append(f"⚔️ Sen → **{vuruş}** hasar")
+                # Oyuncu saldırır
+                canavar_dodge = _dodge_mi(canavar.get("hiz", 8))
+                if canavar_dodge:
+                    turlar.append(f"⚔️ Sen → ❌ Kaçınıldı!")
+                else:
+                    hasar = _hasar_hesapla(statlar["saldiri"], canavar["savunma"])
+                    crit = _kritik_mi(statlar["hiz"])
+                    if crit:
+                        hasar = round(hasar * 1.5)
+                        turlar.append(f"⚔️ Sen → **{hasar}** hasar 💥 KRİTİK!")
+                    else:
+                        turlar.append(f"⚔️ Sen → **{hasar}** hasar")
+                    canavar_hp -= hasar
+
                 if canavar_hp <= 0:
                     break
-                vuruş2 = canavar_hasar + random.randint(-2, 3)
-                oyuncu_hp -= vuruş2
-                turlar.append(f"🐾 {canavar['isim']} → **{vuruş2}** hasar")
+
+                # Canavar saldırır
+                oyuncu_dodge = _dodge_mi(statlar["hiz"])
+                if oyuncu_dodge:
+                    turlar.append(f"🐾 {canavar['isim']} → ❌ Kaçındın!")
+                else:
+                    hasar = _hasar_hesapla(canavar["saldiri"], statlar["savunma"])
+                    mob_crit = _kritik_mi(canavar.get("hiz", 8))
+                    if mob_crit:
+                        hasar = round(hasar * 1.5)
+                        turlar.append(f"🐾 {canavar['isim']} → **{hasar}** hasar 💥 KRİTİK!")
+                    else:
+                        turlar.append(f"🐾 {canavar['isim']} → **{hasar}** hasar")
+                    oyuncu_hp -= hasar
             else:
-                vuruş2 = canavar_hasar + random.randint(-2, 3)
-                oyuncu_hp -= vuruş2
-                turlar.append(f"🐾 {canavar['isim']} → **{vuruş2}** hasar")
+                # Canavar önce saldırır
+                oyuncu_dodge = _dodge_mi(statlar["hiz"])
+                if oyuncu_dodge:
+                    turlar.append(f"🐾 {canavar['isim']} → ❌ Kaçındın!")
+                else:
+                    hasar = _hasar_hesapla(canavar["saldiri"], statlar["savunma"])
+                    mob_crit = _kritik_mi(canavar.get("hiz", 8))
+                    if mob_crit:
+                        hasar = round(hasar * 1.5)
+                        turlar.append(f"🐾 {canavar['isim']} → **{hasar}** hasar 💥 KRİTİK!")
+                    else:
+                        turlar.append(f"🐾 {canavar['isim']} → **{hasar}** hasar")
+                    oyuncu_hp -= hasar
+
                 if oyuncu_hp <= 0:
                     break
-                vuruş = oyuncu_hasar + random.randint(-2, 3)
-                canavar_hp -= vuruş
-                turlar.append(f"⚔️ Sen → **{vuruş}** hasar")
+
+                # Oyuncu saldırır
+                canavar_dodge = _dodge_mi(canavar.get("hiz", 8))
+                if canavar_dodge:
+                    turlar.append(f"⚔️ Sen → ❌ Kaçınıldı!")
+                else:
+                    hasar = _hasar_hesapla(statlar["saldiri"], canavar["savunma"])
+                    crit = _kritik_mi(statlar["hiz"])
+                    if crit:
+                        hasar = round(hasar * 1.5)
+                        turlar.append(f"⚔️ Sen → **{hasar}** hasar 💥 KRİTİK!")
+                    else:
+                        turlar.append(f"⚔️ Sen → **{hasar}** hasar")
+                    canavar_hp -= hasar
 
         kazandi = canavar_hp <= 0
         oyuncu_hp = max(0, oyuncu_hp)
@@ -374,12 +457,13 @@ class PixelQuestCog(commands.Cog):
         altin_kazanc = random.randint(*canavar["altin"]) if kazandi else 0
 
         async with database.pool.acquire() as conn:
+            # Max HP'yi seviyeye göre güncelle
             await conn.execute("""
                 UPDATE pq_karakter SET
-                    hp=$2, xp=xp+$3, altin=altin+$4,
-                    toplam_kill=toplam_kill+$5, toplam_olum=toplam_olum+$6
+                    hp=$2, max_hp=$3, xp=xp+$4, altin=altin+$5,
+                    toplam_kill=toplam_kill+$6, toplam_olum=toplam_olum+$7
                 WHERE discord_id=$1
-            """, interaction.user.id, oyuncu_hp,
+            """, interaction.user.id, oyuncu_hp, gercek_max_hp,
                 xp_kazanc, altin_kazanc,
                 1 if kazandi else 0, 0 if kazandi else 1)
 
@@ -388,7 +472,7 @@ class PixelQuestCog(commands.Cog):
                 VALUES ($1, $2, $3, $4, $5, $6)
             """, interaction.user.id, canavar["isim"],
                 "kazandı" if kazandi else "kaybetti",
-                oyuncu_hasar * tur_sayisi, xp_kazanc, altin_kazanc)
+                0, xp_kazanc, altin_kazanc)
 
         # Loot kontrolü
         loot_txt = ""
@@ -432,36 +516,45 @@ class PixelQuestCog(commands.Cog):
         yeni_seviye = _seviye_hesapla(karakter["xp"] + xp_kazanc)
         seviye_txt = ""
         if yeni_seviye > seviye:
-            yeni_max_hp = IRKLAR[karakter["irk"]]["hp"] + (yeni_seviye - 1) * 15
+            yeni_max_hp = IRKLAR[karakter["irk"]]["hp"] + (yeni_seviye - 1) * SEVIYE_STAT_BONUS["hp"]
             async with database.pool.acquire() as conn:
                 await conn.execute(
                     "UPDATE pq_karakter SET max_hp=$2, hp=$2 WHERE discord_id=$1",
                     interaction.user.id, yeni_max_hp)
-            seviye_txt = f"\n\n🎉 **SEVİYE ATLADIN!** Seviye **{yeni_seviye}**!"
+            seviye_txt = f"\n\n🎉 **SEVİYE ATLADIN!** Seviye **{yeni_seviye}**! *(+1 Saldırı, +1 Savunma, +10 HP)*"
 
-        # Savaş sonrası son turları göster
-        tur_goster = turlar[-6:] if len(turlar) > 6 else turlar
+            # Tier geçiş bildirimi
+            if yeni_seviye == 8:
+                seviye_txt += "\n⚠️ **Chaos canavarlar açıldı!** Dikkatli ol..."
+            elif yeni_seviye == 15:
+                seviye_txt += "\n💀 **Elit canavarlar açıldı!** Gerçek tehlike başlıyor!"
+
+        # Son turları göster (max 8)
+        tur_goster = turlar[-8:] if len(turlar) > 8 else turlar
 
         # Canavar görseli
-        mob_klasor = f"mobs/{mob_tier}"
+        mob_klasor = MOB_IKON_KLASOR.get(mob_tier, "mobs/low")
         mob_path = _icon_path(mob_klasor, canavar["ikon"])
+
+        # Tier etiketi
+        tier_etiket = {"low": "⬜", "chaos": "🟠", "elit": "🔴"}.get(mob_tier, "⬜")
 
         if kazandi:
             embed = discord.Embed(
-                title=f"⚔️ Zafer! — {canavar['isim']}",
+                title=f"⚔️ Zafer! — {tier_etiket} {canavar['isim']}",
                 description=(
                     f"**Savaş ({tur_sayisi} tur):**\n" +
                     "\n".join(tur_goster) +
                     f"\n\n✅ **{canavar['isim']}** yenildi!\n"
                     f"🏆 **+{xp_kazanc} XP** · 💰 **+{altin_kazanc} altın**\n"
-                    f"❤️ Kalan HP: {_hp_bar(oyuncu_hp, statlar['max_hp'])} `{oyuncu_hp}/{statlar['max_hp']}`"
+                    f"❤️ Kalan HP: {_hp_bar(oyuncu_hp, gercek_max_hp)} `{oyuncu_hp}/{gercek_max_hp}`"
                     f"{loot_txt}{seviye_txt}"
                 ),
                 color=0x2ECC71,
             )
         else:
             embed = discord.Embed(
-                title=f"💀 Yenildin! — {canavar['isim']}",
+                title=f"💀 Yenildin! — {tier_etiket} {canavar['isim']}",
                 description=(
                     f"**Savaş ({tur_sayisi} tur):**\n" +
                     "\n".join(tur_goster) +
@@ -496,10 +589,18 @@ class PixelQuestCog(commands.Cog):
 
         xp_txt = f"{karakter['xp']}/{sonraki}" if sonraki else f"{karakter['xp']} (MAX)"
 
+        # Tier bilgisi
+        if seviye >= 15:
+            tier_txt = "🔴 Elit"
+        elif seviye >= 8:
+            tier_txt = "🟠 Chaos"
+        else:
+            tier_txt = "⬜ Low"
+
         embed = discord.Embed(
             title=f"{irk['emoji']} {interaction.user.display_name}",
             description=(
-                f"**Irk:** {irk['isim']} · **Seviye:** {seviye}\n"
+                f"**Irk:** {irk['isim']} · **Seviye:** {seviye} · **Bölge:** {tier_txt}\n"
                 f"**XP:** {xp_txt}\n\n"
                 f"❤️ HP: {_hp_bar(karakter['hp'], statlar['max_hp'])} `{karakter['hp']}/{statlar['max_hp']}`\n"
                 f"⚔️ Saldırı: **{statlar['saldiri']}** · 🛡️ Savunma: **{statlar['savunma']}** · 💨 Hız: **{statlar['hiz']}**\n"
@@ -517,7 +618,7 @@ class PixelQuestCog(commands.Cog):
         except Exception:
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # ── /envanter ────────────────────────────────────────────
+    # ── /pq-envanter ─────────────────────────────────────────
     @app_commands.command(name="pq-envanter", description="Eşyalarını ve malzemelerini gör.")
     async def pq_envanter(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -537,7 +638,6 @@ class PixelQuestCog(commands.Cog):
             await interaction.followup.send("📦 Envanterin boş! `/savaş` yaparak eşya kazan.", ephemeral=True)
             return
 
-        # Kategorilere ayır
         ekipman_txt = []
         malzeme_txt = []
         iksir_txt = []
@@ -560,18 +660,18 @@ class PixelQuestCog(commands.Cog):
 
         desc_parts = []
         if ekipman_txt:
-            desc_parts.append("**Ekipman:**\n" + "\n".join(ekipman_txt[:15]))
+            desc_parts.append("**⚔️ Ekipman:**\n" + "\n".join(ekipman_txt[:15]))
         if malzeme_txt:
-            desc_parts.append("**Malzeme:**\n" + "\n".join(malzeme_txt[:15]))
+            desc_parts.append("**📦 Malzeme:**\n" + "\n".join(malzeme_txt[:15]))
         if iksir_txt:
-            desc_parts.append("**İksir:**\n" + "\n".join(iksir_txt[:10]))
+            desc_parts.append("**🧪 İksir:**\n" + "\n".join(iksir_txt[:10]))
 
         embed = discord.Embed(
             title="📦 Envanter",
             description="\n\n".join(desc_parts) if desc_parts else "Boş",
             color=0xFFD700,
         )
-        embed.set_footer(text="/kuşan <eşya adı> · /iksir-kullan <iksir adı>")
+        embed.set_footer(text="/kuşan · /iksir-kullan · /pq-sat · /pq-dükkan")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /kuşan ───────────────────────────────────────────────
@@ -594,6 +694,19 @@ class PixelQuestCog(commands.Cog):
                 await interaction.followup.send(f"❌ **{esya}** envanterde bulunamadı!", ephemeral=True)
                 return
 
+            # Seviye kontrolü
+            seviye = _seviye_hesapla(karakter["xp"])
+            ekipman_data = None
+            for ek in EKIPMANLAR.get(item["tur"], []):
+                if ek["isim"] == item["isim"]:
+                    ekipman_data = ek
+                    break
+            if ekipman_data and ekipman_data.get("seviye", 1) > seviye:
+                await interaction.followup.send(
+                    f"❌ **{item['isim']}** için seviye **{ekipman_data['seviye']}** gerekli! (Seviyen: {seviye})",
+                    ephemeral=True)
+                return
+
             kusanili_tur = f"{item['tur']}_kusanili"
 
             # Mevcut kuşanılı eşyayı çıkar
@@ -602,7 +715,6 @@ class PixelQuestCog(commands.Cog):
                 interaction.user.id, kusanili_tur)
 
             if mevcut:
-                # Eski eşyayı envantere geri koy
                 await conn.execute("""
                     INSERT INTO pq_envanter (discord_id, tur, isim, ikon, bonus, nadirlik)
                     VALUES ($1, $2, $3, $4, $5, $6)
@@ -679,13 +791,19 @@ class PixelQuestCog(commands.Cog):
                 return
 
             if iksir_data["etki"] == "hp":
-                yeni_hp = min(karakter["max_hp"], karakter["hp"] + iksir_data["deger"])
+                statlar = await self._get_statlar(interaction.user.id, karakter)
+                yeni_hp = min(statlar["max_hp"], karakter["hp"] + iksir_data["deger"])
                 await conn.execute(
                     "UPDATE pq_karakter SET hp=$2 WHERE discord_id=$1",
                     interaction.user.id, yeni_hp)
-                etki_txt = f"❤️ +{iksir_data['deger']} HP → `{yeni_hp}/{karakter['max_hp']}`"
+                etki_txt = f"❤️ +{iksir_data['deger']} HP → `{yeni_hp}/{statlar['max_hp']}`"
             else:
-                etki_txt = f"⚡ +{iksir_data['deger']} {iksir_data['etki']} (savaş bonusu yakında)"
+                # Geçici buff — sonraki savaşta aktif
+                buff = self._buffs.get(interaction.user.id, {})
+                buff[iksir_data["etki"]] = buff.get(iksir_data["etki"], 0) + iksir_data["deger"]
+                self._buffs[interaction.user.id] = buff
+                stat_emoji = {"saldiri": "⚔️", "savunma": "🛡️", "hiz": "💨"}.get(iksir_data["etki"], "⚡")
+                etki_txt = f"{stat_emoji} +{iksir_data['deger']} {iksir_data['etki']} *(sonraki savaşta aktif)*"
 
             # Adeti düşür
             if item["adet"] > 1:
@@ -694,9 +812,131 @@ class PixelQuestCog(commands.Cog):
                 await conn.execute("DELETE FROM pq_envanter WHERE id=$1", item["id"])
 
         embed = discord.Embed(
-            title=f"🧪 İksir Kullanıldı!",
+            title="🧪 İksir Kullanıldı!",
             description=f"**{item['isim']}**\n{etki_txt}",
             color=0x2ECC71,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ── /pq-dükkan ───────────────────────────────────────────
+    @app_commands.command(name="pq-dükkan", description="Altınla iksir satın al.")
+    async def pq_dukkan(self, interaction: discord.Interaction):
+        karakter = await self._get_karakter(interaction.user.id)
+        if not karakter:
+            await interaction.response.send_message(
+                "❌ Önce `/karakter-oluştur` ile bir karakter oluştur!", ephemeral=True)
+            return
+
+        satirlar = []
+        for i, item in enumerate(DUKKAN, 1):
+            satirlar.append(f"`{i}.` **{item['isim']}** — 💰 {item['fiyat']} altın\n   _{item['aciklama']}_")
+
+        embed = discord.Embed(
+            title="🏪 Dükkan",
+            description=(
+                "\n".join(satirlar) +
+                f"\n\n💰 Altınım: **{karakter['altin']:,}**\n"
+                "*`/pq-satın-al <ürün adı>` ile satın al*"
+            ),
+            color=0xFFD700,
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ── /pq-satın-al ─────────────────────────────────────────
+    @app_commands.command(name="pq-satın-al", description="Dükkandan ürün satın al.")
+    @app_commands.describe(urun="Satın almak istediğin ürünün adı")
+    async def pq_satin_al(self, interaction: discord.Interaction, urun: str):
+        await interaction.response.defer(ephemeral=True)
+
+        karakter = await self._get_karakter(interaction.user.id)
+        if not karakter:
+            await interaction.followup.send("❌ Önce karakter oluştur!", ephemeral=True)
+            return
+
+        # Dükkan ürününü bul
+        item_data = None
+        for item in DUKKAN:
+            if urun.lower() in item["isim"].lower():
+                item_data = item
+                break
+
+        if not item_data:
+            await interaction.followup.send(f"❌ **{urun}** dükkanda bulunamadı! `/pq-dükkan` ile ürünleri gör.", ephemeral=True)
+            return
+
+        if karakter["altin"] < item_data["fiyat"]:
+            await interaction.followup.send(
+                f"❌ Yetersiz altın! **{item_data['isim']}**: {item_data['fiyat']} altın · Sende: {karakter['altin']} altın",
+                ephemeral=True)
+            return
+
+        async with database.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE pq_karakter SET altin=altin-$2 WHERE discord_id=$1",
+                interaction.user.id, item_data["fiyat"])
+
+            await conn.execute("""
+                INSERT INTO pq_envanter (discord_id, tur, isim, ikon, bonus, nadirlik)
+                VALUES ($1, 'iksir', $2, $3, $4, $5)
+                ON CONFLICT (discord_id, tur, isim) DO UPDATE SET adet = pq_envanter.adet + 1
+            """, interaction.user.id, item_data["isim"], item_data["ikon"],
+                item_data["deger"], item_data["nadirlik"])
+
+        embed = discord.Embed(
+            title="🛒 Satın Alındı!",
+            description=(
+                f"**{item_data['isim']}** envantere eklendi.\n"
+                f"💰 -{item_data['fiyat']} altın · Kalan: {karakter['altin'] - item_data['fiyat']:,} altın"
+            ),
+            color=0x2ECC71,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ── /pq-sat ──────────────────────────────────────────────
+    @app_commands.command(name="pq-sat", description="Tüm malzemelerini altına çevir.")
+    async def pq_sat(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        karakter = await self._get_karakter(interaction.user.id)
+        if not karakter:
+            await interaction.followup.send("❌ Önce karakter oluştur!", ephemeral=True)
+            return
+
+        async with database.pool.acquire() as conn:
+            malzemeler = await conn.fetch(
+                "SELECT * FROM pq_envanter WHERE discord_id=$1 AND tur='malzeme'",
+                interaction.user.id)
+
+            if not malzemeler:
+                await interaction.followup.send("📦 Satılacak malzemen yok!", ephemeral=True)
+                return
+
+            toplam = 0
+            detay = []
+            for m in malzemeler:
+                fiyat = MALZEME_FIYAT.get(m["kategori"], 3)
+                kazanc = fiyat * m["adet"]
+                toplam += kazanc
+                detay.append(f"📦 {m['isim']} x{m['adet']} → **{kazanc}** altın")
+
+            # Malzemeleri sil
+            await conn.execute(
+                "DELETE FROM pq_envanter WHERE discord_id=$1 AND tur='malzeme'",
+                interaction.user.id)
+
+            # Altın ekle
+            await conn.execute(
+                "UPDATE pq_karakter SET altin=altin+$2 WHERE discord_id=$1",
+                interaction.user.id, toplam)
+
+        embed = discord.Embed(
+            title="💰 Malzemeler Satıldı!",
+            description=(
+                "\n".join(detay[:20]) +
+                f"\n\n**Toplam: +{toplam:,} altın**\n"
+                f"💰 Yeni bakiye: **{karakter['altin'] + toplam:,}** altın"
+            ),
+            color=0xFFD700,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
