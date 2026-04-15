@@ -84,6 +84,14 @@ class DogrulamaView(discord.ui.View):
             log_emb.set_footer(text="Ascelia Bot • AWGames")
             await log_kanal.send(embed=log_emb)
 
+        # Referans ödülü kontrolü
+        try:
+            referans_cog = interaction.client.get_cog("ReferansCog")
+            if referans_cog:
+                await referans_cog.referans_odul_ver(uye)
+        except Exception as e:
+            log.error(f"Referans ödül hatası: {e}")
+
         log.info(f"Doğrulama → {uye} ({uye.id})")
 
     @discord.ui.button(

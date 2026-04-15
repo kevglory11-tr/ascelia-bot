@@ -243,6 +243,20 @@ async def _migrate() -> None:
             """)
         except Exception:
             pass
+        # Referans sistemi tablosu
+        try:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS referans_log (
+                    id              SERIAL      PRIMARY KEY,
+                    davet_eden_id   BIGINT      NOT NULL,
+                    davet_edilen_id BIGINT      NOT NULL,
+                    odul_coin       INT         DEFAULT 0,
+                    created_at      TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE (davet_edilen_id)
+                )
+            """)
+        except Exception:
+            pass
     log.info("✅ Migrasyon tamamlandı.")
 
 
