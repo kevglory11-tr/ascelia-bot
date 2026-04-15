@@ -40,8 +40,11 @@ COGS = [
     "cogs.patron",
     "cogs.skor_tahmin",
     "cogs.atam",
+    "cogs.referans",
     # ── Ticket komutları ─────────────────────────────────────
     "cogs.ticket_komutlar",
+    # ── Pixel Quest RPG ──────────────────────────────────────
+    "cogs.pixel_quest",
 ]
 
 
