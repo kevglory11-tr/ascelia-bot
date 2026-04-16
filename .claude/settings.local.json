@@ -21,7 +21,8 @@
       "Bash(command -v gh.exe)",
       "Read(//c/Program Files \\(x86\\)/**)",
       "Bash(python -m py_compile cogs/pixel_quest.py utils/ui.py)",
-      "Bash(python -m py_compile cogs/yardim.py cogs/pixel_quest.py utils/ui.py)"
+      "Bash(python -m py_compile cogs/yardim.py cogs/pixel_quest.py utils/ui.py)",
+      "Bash(python -m py_compile cogs/pixel_quest.py config/pixel_quest_data.py utils/ui.py)"
     ]
   }
 }

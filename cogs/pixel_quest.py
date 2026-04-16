@@ -12,12 +12,12 @@ import database
 from utils.logger import setup_logger
 from utils import ui
 from config.pixel_quest_data import (
-    IRKLAR, CANAVARLAR, LOOT_KATEGORILERI, LOOT_ISIMLERI,
+    IRKLAR, CANAVARLAR, LOOT_KATEGORILERI, LOOT_ISIMLERI, LOOT_IKON,
     EKIPMANLAR, EKIPMAN_TURLERI, IKSIRLER,
     SEVIYE_XP, NADIRLIK_RENK, NADIRLIK_EMOJI, NADIRLIK_SIRA, SAVAS_COOLDOWN,
     SEVIYE_STAT_BONUS, DUKKAN, MALZEME_FIYAT,
     MALZEME_DROP_SANS, EKIPMAN_DROP_SANS, IKSIR_DROP_SANS,
-    MOB_IKON_KLASOR,
+    MOB_IKON_KLASOR, SKILL_KLASORLERI,
 )
 
 log = setup_logger("pixel_quest")
@@ -61,21 +61,29 @@ def _canavar_sec(seviye: int):
 
 
 def _loot_drop(canavar_tier: str) -> Optional[dict]:
-    """Canavar öldürüldüğünde loot düşürme şansı."""
+    """Canavar öldürüldüğünde loot düşürme şansı.
+
+    İkonlar LOOT_IKON ile deterministic: aynı isimli item her yerde aynı görsel.
+    Elit tier'da şanslı mineral (değerli maden) dropu da mümkündür.
+    """
     if random.random() > MALZEME_DROP_SANS:
         return None
 
     if canavar_tier == "elit":
-        kategori_key = random.choice(["undead", "pirate"])
+        # %20 şans mineral, %80 undead/pirate
+        kategori_key = random.choices(
+            ["mineral", "undead", "pirate"], weights=[20, 50, 30], k=1)[0]
     elif canavar_tier == "chaos":
-        kategori_key = random.choice(["pirate", "undead"])
+        kategori_key = random.choices(
+            ["pirate", "undead"], weights=[55, 45], k=1)[0]
     else:
-        kategori_key = random.choice(["goblin", "general"])
+        kategori_key = random.choices(
+            ["goblin", "general"], weights=[50, 50], k=1)[0]
 
     kategori = LOOT_KATEGORILERI[kategori_key]
     isimler = LOOT_ISIMLERI.get(kategori_key, ["Bilinmeyen Ganimet"])
     isim = random.choice(isimler)
-    ikon = random.randint(1, min(kategori["sayisi"], 48))
+    ikon = LOOT_IKON.get(isim, random.randint(1, min(kategori["sayisi"], 48)))
 
     return {
         "isim": isim,
@@ -583,6 +591,11 @@ class PixelQuestCog(commands.Cog):
         mob_klasor = MOB_IKON_KLASOR.get(mob_tier, "mobs/low")
         mob_path = _icon_path(mob_klasor, canavar["ikon"])
 
+        # Irka özel skill ikonu (savaş stilini yansıtır)
+        skill_klasor = SKILL_KLASORLERI.get(karakter["irk"], "skills/swordman")
+        skill_ikon_no = random.randint(1, 48)
+        skill_path = _icon_path(skill_klasor, skill_ikon_no)
+
         # Tur logu
         log_bloku = "\n".join(tur_goster)
 
@@ -629,9 +642,16 @@ class PixelQuestCog(commands.Cog):
                              color=ui.Palette.ERROR, guild=interaction.guild)
 
         try:
-            dosya = discord.File(mob_path, filename="mob.png")
+            files = [discord.File(mob_path, filename="mob.png")]
             embed.set_thumbnail(url="attachment://mob.png")
-            await interaction.followup.send(embed=embed, file=dosya, ephemeral=True)
+            # Kazanılan/berabere savaşlarda ırka özel skill ikonu author kısmında
+            if kazandi and os.path.exists(skill_path):
+                files.append(discord.File(skill_path, filename="skill.png"))
+                embed.set_author(
+                    name=f"{interaction.user.display_name} • {IRKLAR[karakter['irk']]['isim']}",
+                    icon_url="attachment://skill.png",
+                )
+            await interaction.followup.send(embed=embed, files=files, ephemeral=True)
         except Exception:
             await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -766,6 +786,37 @@ class PixelQuestCog(commands.Cog):
             guild=interaction.guild,
         )
         embed.set_footer(text=f"/kuşan  {ui.Icon.BULLET}  /pq-çıkar  {ui.Icon.BULLET}  /iksir-kullan  {ui.Icon.BULLET}  /pq-sat  {ui.Icon.BULLET}  /pq-dükkan")
+
+        # Thumbnail: en nadir kuşanılı veya ekipman, yoksa iksir, yoksa malzeme
+        try:
+            adaylar = [e for e in esyalar if "kusanili" in e["tur"]]
+            if not adaylar:
+                adaylar = [e for e in esyalar if e["tur"] in ("silah","kalkan","kemer")]
+            if not adaylar:
+                adaylar = [e for e in esyalar if e["tur"] == "iksir"]
+            if not adaylar:
+                adaylar = list(esyalar)
+
+            best = max(adaylar, key=lambda e: NADIRLIK_SIRA.get(e["nadirlik"], 0))
+            tur_anahtar = best["tur"].replace("_kusanili", "")
+            if tur_anahtar in EKIPMAN_TURLERI:
+                klasor = EKIPMAN_TURLERI[tur_anahtar]["klasor"]
+            elif best["tur"] == "iksir":
+                klasor = "potions"
+            elif best["tur"] == "malzeme":
+                kat = LOOT_KATEGORILERI.get(best["kategori"] or "")
+                klasor = kat["klasor"] if kat else None
+            else:
+                klasor = None
+
+            if klasor:
+                ikon_path = _icon_path(klasor, best["ikon"])
+                dosya = discord.File(ikon_path, filename="inv.png")
+                embed.set_thumbnail(url="attachment://inv.png")
+                await interaction.followup.send(embed=embed, file=dosya, ephemeral=True)
+                return
+        except Exception:
+            pass
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /kuşan ───────────────────────────────────────────────
@@ -910,7 +961,15 @@ class PixelQuestCog(commands.Cog):
             color=ui.Palette.NEUTRAL,
             guild=interaction.guild,
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        # Ekipman ikonu thumbnail
+        try:
+            klasor = EKIPMAN_TURLERI.get(slot.value, {}).get("klasor", "equipment/bow")
+            ikon_path = _icon_path(klasor, mevcut["ikon"])
+            dosya = discord.File(ikon_path, filename="equip.png")
+            embed.set_thumbnail(url="attachment://equip.png")
+            await interaction.followup.send(embed=embed, file=dosya, ephemeral=True)
+        except Exception:
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /iksir-kullan ────────────────────────────────────────
     @app_commands.command(name="iksir-kullan", description="Bir iksir kullanarak iyileş veya güçlen.")
@@ -972,10 +1031,16 @@ class PixelQuestCog(commands.Cog):
             "İksir Kullanıldı",
             f"**{item['isim']}**\n{ui.DIVIDER_THIN}\n{etki_txt}",
             badge=ui.Icon.POTION,
-            color=ui.Palette.SUCCESS,
+            color=ui.RARITY_COLOR.get(item["nadirlik"], ui.Palette.SUCCESS),
             guild=interaction.guild,
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        try:
+            ikon_path = _icon_path("potions", item["ikon"])
+            dosya = discord.File(ikon_path, filename="potion.png")
+            embed.set_thumbnail(url="attachment://potion.png")
+            await interaction.followup.send(embed=embed, file=dosya, ephemeral=True)
+        except Exception:
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /pq-dükkan ───────────────────────────────────────────
     @app_commands.command(name="pq-dükkan", description="Altınla iksir satın al.")
@@ -1002,7 +1067,13 @@ class PixelQuestCog(commands.Cog):
         )
         embed = ui.panel("Dükkan", body, badge=ui.Icon.SHOP,
                          color=ui.Palette.GOLD, guild=interaction.guild)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        try:
+            ikon_path = _icon_path("potions", DUKKAN[0]["ikon"])
+            dosya = discord.File(ikon_path, filename="shop.png")
+            embed.set_thumbnail(url="attachment://shop.png")
+            await interaction.response.send_message(embed=embed, file=dosya, ephemeral=True)
+        except Exception:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── /pq-satın-al ─────────────────────────────────────────
     @app_commands.command(name="pq-satın-al", description="Dükkandan ürün satın al.")
@@ -1051,10 +1122,16 @@ class PixelQuestCog(commands.Cog):
                 f"{ui.Icon.BULLET} Kalan {ui.Icon.GOLD} `{karakter['altin'] - item_data['fiyat']:,}`"
             ),
             badge=ui.Icon.CART,
-            color=ui.Palette.SUCCESS,
+            color=ui.RARITY_COLOR.get(item_data["nadirlik"], ui.Palette.SUCCESS),
             guild=interaction.guild,
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        try:
+            ikon_path = _icon_path("potions", item_data["ikon"])
+            dosya = discord.File(ikon_path, filename="potion.png")
+            embed.set_thumbnail(url="attachment://potion.png")
+            await interaction.followup.send(embed=embed, file=dosya, ephemeral=True)
+        except Exception:
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /pq-sat ──────────────────────────────────────────────
     @app_commands.command(name="pq-sat", description="Tüm malzemelerini altına çevir.")
@@ -1105,6 +1182,21 @@ class PixelQuestCog(commands.Cog):
             color=ui.Palette.GOLD,
             guild=interaction.guild,
         )
+        # En değerli malzemeyi thumbnail yap
+        try:
+            en_degerli = max(
+                malzemeler,
+                key=lambda m: MALZEME_FIYAT.get(m["kategori"], 3) * m["adet"],
+            )
+            kat = LOOT_KATEGORILERI.get(en_degerli["kategori"])
+            if kat:
+                ikon_path = _icon_path(kat["klasor"], en_degerli["ikon"])
+                dosya = discord.File(ikon_path, filename="loot.png")
+                embed.set_thumbnail(url="attachment://loot.png")
+                await interaction.followup.send(embed=embed, file=dosya, ephemeral=True)
+                return
+        except Exception:
+            pass
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /pq-sıralama ────────────────────────────────────────
