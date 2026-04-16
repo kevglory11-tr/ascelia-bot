@@ -77,15 +77,17 @@ CANAVARLAR = {
         {"isim": "Zombi Kral",         "hp": 230, "saldiri": 25, "savunma": 20, "hiz": 5,  "xp": 68,  "altin": (33, 65),   "ikon": 11},
         {"isim": "Demon Avcısı",       "hp": 190, "saldiri": 30, "savunma": 18, "hiz": 12, "xp": 75,  "altin": (36, 72),   "ikon": 12},
     ],
+    # Elit mob ikonları chaos klasörünün kullanılmayan yüksek
+    # aralığından seçildi (chaos tier 1-12 kullanır) — görsel çakışma yok
     "elit": [
-        {"isim": "Cehennem Lordu",     "hp": 350, "saldiri": 40, "savunma": 25, "hiz": 8,  "xp": 130, "altin": (80, 140),  "ikon": 1},
-        {"isim": "Karanlık İmparator", "hp": 420, "saldiri": 44, "savunma": 30, "hiz": 6,  "xp": 160, "altin": (95, 160),  "ikon": 3},
-        {"isim": "Ölüm Şövalyesi",    "hp": 380, "saldiri": 48, "savunma": 22, "hiz": 12, "xp": 150, "altin": (90, 155),  "ikon": 5},
-        {"isim": "Kıyamet Ejderhası",  "hp": 550, "saldiri": 42, "savunma": 38, "hiz": 4,  "xp": 200, "altin": (120, 190), "ikon": 7},
-        {"isim": "Ruh Lordu",          "hp": 300, "saldiri": 52, "savunma": 20, "hiz": 16, "xp": 170, "altin": (100, 170), "ikon": 9},
-        {"isim": "Kadim Titan",        "hp": 650, "saldiri": 38, "savunma": 42, "hiz": 2,  "xp": 220, "altin": (130, 200), "ikon": 2},
-        {"isim": "Şeytan Kralı",       "hp": 480, "saldiri": 50, "savunma": 32, "hiz": 9,  "xp": 200, "altin": (115, 185), "ikon": 4},
-        {"isim": "Kaos Tanrısı",       "hp": 600, "saldiri": 55, "savunma": 36, "hiz": 7,  "xp": 250, "altin": (140, 220), "ikon": 6},
+        {"isim": "Cehennem Lordu",     "hp": 350, "saldiri": 40, "savunma": 25, "hiz": 8,  "xp": 130, "altin": (80, 140),  "ikon": 41},
+        {"isim": "Karanlık İmparator", "hp": 420, "saldiri": 44, "savunma": 30, "hiz": 6,  "xp": 160, "altin": (95, 160),  "ikon": 42},
+        {"isim": "Ölüm Şövalyesi",     "hp": 380, "saldiri": 48, "savunma": 22, "hiz": 12, "xp": 150, "altin": (90, 155),  "ikon": 43},
+        {"isim": "Kıyamet Ejderhası",  "hp": 550, "saldiri": 42, "savunma": 38, "hiz": 4,  "xp": 200, "altin": (120, 190), "ikon": 44},
+        {"isim": "Ruh Lordu",          "hp": 300, "saldiri": 52, "savunma": 20, "hiz": 16, "xp": 170, "altin": (100, 170), "ikon": 45},
+        {"isim": "Kadim Titan",        "hp": 650, "saldiri": 38, "savunma": 42, "hiz": 2,  "xp": 220, "altin": (130, 200), "ikon": 46},
+        {"isim": "Şeytan Kralı",       "hp": 480, "saldiri": 50, "savunma": 32, "hiz": 9,  "xp": 200, "altin": (115, 185), "ikon": 47},
+        {"isim": "Kaos Tanrısı",       "hp": 600, "saldiri": 55, "savunma": 36, "hiz": 7,  "xp": 250, "altin": (140, 220), "ikon": 48},
     ],
 }
 
@@ -95,6 +97,7 @@ LOOT_KATEGORILERI = {
     "general": {"isim": "Genel Ganimeler",     "klasor": "loot/general", "sayisi": 48, "tier": 1},
     "pirate":  {"isim": "Korsan Hazineleri",   "klasor": "loot/pirate",  "sayisi": 48, "tier": 2},
     "undead":  {"isim": "Undead Kalıntıları",  "klasor": "loot/undead",  "sayisi": 48, "tier": 3},
+    "mineral": {"isim": "Değerli Madenler",    "klasor": "minerals",     "sayisi": 48, "tier": 3},
 }
 
 LOOT_ISIMLERI = {
@@ -114,6 +117,29 @@ LOOT_ISIMLERI = {
         "Kafatası", "Ruh Özü", "Karanlık Kristal", "Lanetli Kemik", "Gölgeli Taş",
         "Ölüm Muskası", "Hayalet Külü", "Karanlık Öz", "Kefen Parçası", "Ruh Taşı",
     ],
+    "mineral": [
+        "Bakır Cevheri", "Demir Külçesi", "Gümüş Tozu", "Altın Pirinci", "Zümrüt Şardı",
+        "Yakut Kırığı", "Safir Parçası", "Elmas Tozu", "Mithril Cevheri", "Adamant Külçesi",
+    ],
+}
+
+# İsim → ikon (deterministic) — aynı isimli item her yerde aynı görsel
+LOOT_IKON = {
+    # goblin
+    "Goblin Dişi": 1, "Goblin Tırnak": 2, "Kirli Bez": 3, "Paslı Civata": 4, "Kemik Parçası": 5,
+    "Eski Boncuk": 6, "Küçük Çanta": 7, "Goblin Küpesi": 8, "Yırtık Deri": 9, "Taş Bilyesi": 10,
+    # general
+    "Hayvan Derisi": 1, "Sert Kabuk": 2, "Örümcek Ağı": 3, "Kurt Pençesi": 4, "Ayı Kürkü": 5,
+    "Yılan Pulcuğu": 6, "Sivri Diş": 7, "Kemik Kolye": 8, "Eski Para": 9, "Kristal Parçası": 10,
+    # pirate
+    "Korsan Bıçağı": 1, "Altın Sikke": 2, "Deniz Kabuğu": 3, "Pusula Parçası": 4, "Harita Parçası": 5,
+    "Gemi Civisi": 6, "İnci Tanesi": 7, "Korsan Bandanası": 8, "Kanca": 9, "Barut Torbası": 10,
+    # undead
+    "Kafatası": 1, "Ruh Özü": 2, "Karanlık Kristal": 3, "Lanetli Kemik": 4, "Gölgeli Taş": 5,
+    "Ölüm Muskası": 6, "Hayalet Külü": 7, "Karanlık Öz": 8, "Kefen Parçası": 9, "Ruh Taşı": 10,
+    # mineral
+    "Bakır Cevheri": 1, "Demir Külçesi": 2, "Gümüş Tozu": 3, "Altın Pirinci": 4, "Zümrüt Şardı": 5,
+    "Yakut Kırığı": 6, "Safir Parçası": 7, "Elmas Tozu": 8, "Mithril Cevheri": 9, "Adamant Külçesi": 10,
 }
 
 # ── Ekipman (20 seviyeye yayıldı) ───────────────────────
@@ -207,10 +233,11 @@ DUKKAN = [
 
 # ── Malzeme satış fiyatları ──────────────────────────────
 MALZEME_FIYAT = {
-    "goblin": 5,
+    "goblin":  5,
     "general": 5,
-    "pirate": 12,
-    "undead": 20,
+    "pirate":  12,
+    "undead":  20,
+    "mineral": 35,
 }
 
 # ── Nadirlik renkleri ─────────────────────────────────────
@@ -247,7 +274,25 @@ IKSIR_DROP_SANS = 0.08     # %8
 MOB_IKON_KLASOR = {
     "low": "mobs/low",
     "chaos": "mobs/chaos",
-    "elit": "mobs/chaos",
+    "elit": "mobs/chaos",  # elit iconları 41-48 aralığında, chaos ise 1-12
+}
+
+# ── Irk → skill klasörü (savaş log görselleri için) ──────
+# Her ırkın kendine özel skill ikonları vardır; embed thumbnail olarak
+# rastgele seçilerek çeşitlilik sağlanır (avatar yerine)
+SKILL_KLASORLERI = {
+    "cuece": "skills/paladin",
+    "peri":  "skills/undead",
+    "ork":   "skills/swordman",
+}
+
+# Nadirlik → iksir ikonu (envanter embed'lerinde tematik kullanım)
+IKSIR_IKON_NADIRLIK = {
+    "yaygın":   1,
+    "uncommon": 10,
+    "nadir":    20,
+    "efsanevi": 30,
+    "mitik":    40,
 }
 
 # ── Savaş cooldown ──────────────────────────────────────
