@@ -143,6 +143,26 @@ def _dodge_mi(hiz: int) -> bool:
     return random.random() < (hiz * 0.008)
 
 
+def _en_iyi_eslesme(aranan: str, adaylar: list[str]) -> Optional[str]:
+    """Kullanıcı girdisiyle en iyi eşleşmeyi bul (exact > startswith > contains)."""
+    aranan_l = aranan.lower().strip()
+    if not aranan_l:
+        return None
+    # 1. Tam eşleşme
+    for a in adaylar:
+        if a.lower() == aranan_l:
+            return a
+    # 2. Başlangıç eşleşmesi
+    for a in adaylar:
+        if a.lower().startswith(aranan_l):
+            return a
+    # 3. İçerme eşleşmesi
+    for a in adaylar:
+        if aranan_l in a.lower():
+            return a
+    return None
+
+
 # ── Irk Seçim View ───────────────────────────────────────
 class IrkSecimView(discord.ui.View):
     def __init__(self, cog):
@@ -373,8 +393,10 @@ class PixelQuestCog(commands.Cog):
         # HP'yi max'a clamp et (kemer çıkarılmış olabilir)
         oyuncu_hp = min(karakter["hp"], gercek_max_hp)
         canavar_hp = canavar["hp"]
+        canavar_max_hp = canavar["hp"]
         turlar = []
         tur_sayisi = 0
+        toplam_hasar = 0  # canavara verilen toplam hasar
 
         # Hız: kim önce vuruyor
         oyuncu_ilk = statlar["hiz"] >= canavar.get("hiz", 8)
@@ -396,6 +418,7 @@ class PixelQuestCog(commands.Cog):
                     else:
                         turlar.append(f"⚔️ Sen → **{hasar}** hasar")
                     canavar_hp -= hasar
+                    toplam_hasar += hasar
 
                 if canavar_hp <= 0:
                     break
@@ -444,13 +467,26 @@ class PixelQuestCog(commands.Cog):
                     else:
                         turlar.append(f"⚔️ Sen → **{hasar}** hasar")
                     canavar_hp -= hasar
+                    toplam_hasar += hasar
 
         kazandi = canavar_hp <= 0
+        olduruldu = oyuncu_hp <= 0
+        berabere = (not kazandi) and (not olduruldu)  # tur limiti, ikisi de ayakta
         oyuncu_hp = max(0, oyuncu_hp)
 
         # Sonuçları kaydet
         xp_kazanc = canavar["xp"] if kazandi else 0
         altin_kazanc = random.randint(*canavar["altin"]) if kazandi else 0
+
+        if berabere:
+            sonuc = "berabere"
+            kill_delta, olum_delta = 0, 0
+        elif kazandi:
+            sonuc = "kazandı"
+            kill_delta, olum_delta = 1, 0
+        else:
+            sonuc = "kaybetti"
+            kill_delta, olum_delta = 0, 1
 
         async with database.pool.acquire() as conn:
             # Max HP'yi seviyeye göre güncelle
@@ -460,15 +496,13 @@ class PixelQuestCog(commands.Cog):
                     toplam_kill=toplam_kill+$6, toplam_olum=toplam_olum+$7
                 WHERE discord_id=$1
             """, interaction.user.id, oyuncu_hp, gercek_max_hp,
-                xp_kazanc, altin_kazanc,
-                1 if kazandi else 0, 0 if kazandi else 1)
+                xp_kazanc, altin_kazanc, kill_delta, olum_delta)
 
             await conn.execute("""
                 INSERT INTO pq_savas_log (discord_id, canavar, sonuc, hasar, xp, altin)
                 VALUES ($1, $2, $3, $4, $5, $6)
-            """, interaction.user.id, canavar["isim"],
-                "kazandı" if kazandi else "kaybetti",
-                0, xp_kazanc, altin_kazanc)
+            """, interaction.user.id, canavar["isim"], sonuc,
+                toplam_hasar, xp_kazanc, altin_kazanc)
 
         # Loot kontrolü
         loot_txt = ""
@@ -535,7 +569,20 @@ class PixelQuestCog(commands.Cog):
         # Tier etiketi
         tier_etiket = {"low": "⬜", "chaos": "🟠", "elit": "🔴"}.get(mob_tier, "⬜")
 
-        if kazandi:
+        if berabere:
+            embed = discord.Embed(
+                title=f"⚖️ Berabere! — {tier_etiket} {canavar['isim']}",
+                description=(
+                    f"**Savaş ({tur_sayisi} tur):**\n" +
+                    "\n".join(tur_goster) +
+                    f"\n\n⚖️ Savaş uzadı, ikiniz de çekildiniz.\n"
+                    f"❤️ Kalan HP: {_hp_bar(oyuncu_hp, gercek_max_hp)} `{oyuncu_hp}/{gercek_max_hp}`\n"
+                    f"🐾 Canavar HP: `{max(0, canavar_hp)}/{canavar_max_hp}`\n"
+                    f"*Ganimet yok. Dinlen ve tekrar dene.*"
+                ),
+                color=0x95A5A6,
+            )
+        elif kazandi:
             embed = discord.Embed(
                 title=f"⚔️ Zafer! — {tier_etiket} {canavar['isim']}",
                 description=(
@@ -688,13 +735,18 @@ class PixelQuestCog(commands.Cog):
             return
 
         async with database.pool.acquire() as conn:
-            item = await conn.fetchrow(
+            adaylar = await conn.fetch(
                 "SELECT * FROM pq_envanter WHERE discord_id=$1 AND isim ILIKE $2 AND tur IN ('silah','kalkan','kemer')",
                 interaction.user.id, f"%{esya}%")
 
-            if not item:
+            if not adaylar:
                 await interaction.followup.send(f"❌ **{esya}** envanterde bulunamadı!", ephemeral=True)
                 return
+
+            # En iyi eşleşmeyi seç (exact > startswith > contains)
+            isimler = [r["isim"] for r in adaylar]
+            secilen_isim = _en_iyi_eslesme(esya, isimler) or isimler[0]
+            item = next(r for r in adaylar if r["isim"] == secilen_isim)
 
             # Seviye kontrolü
             seviye = _seviye_hesapla(karakter["xp"])
@@ -761,6 +813,55 @@ class PixelQuestCog(commands.Cog):
         except Exception:
             await interaction.followup.send(embed=embed, ephemeral=True)
 
+    # ── /pq-çıkar ────────────────────────────────────────────
+    @app_commands.command(name="pq-çıkar", description="Kuşanılı bir ekipmanı çıkar ve envantere geri koy.")
+    @app_commands.describe(slot="Çıkarmak istediğin slot")
+    @app_commands.choices(slot=[
+        app_commands.Choice(name="Silah", value="silah"),
+        app_commands.Choice(name="Kalkan", value="kalkan"),
+        app_commands.Choice(name="Kemer", value="kemer"),
+    ])
+    async def pq_cikar(self, interaction: discord.Interaction, slot: app_commands.Choice[str]):
+        await interaction.response.defer(ephemeral=True)
+
+        karakter = await self._get_karakter(interaction.user.id)
+        if not karakter:
+            await interaction.followup.send("❌ Önce karakter oluştur!", ephemeral=True)
+            return
+
+        kusanili_tur = f"{slot.value}_kusanili"
+        async with database.pool.acquire() as conn:
+            mevcut = await conn.fetchrow(
+                "SELECT * FROM pq_envanter WHERE discord_id=$1 AND tur=$2",
+                interaction.user.id, kusanili_tur)
+
+            if not mevcut:
+                await interaction.followup.send(
+                    f"❌ {slot.name} slotunda kuşanılı eşya yok!", ephemeral=True)
+                return
+
+            await conn.execute("""
+                INSERT INTO pq_envanter (discord_id, tur, isim, ikon, bonus, nadirlik)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (discord_id, tur, isim) DO UPDATE SET adet = pq_envanter.adet + 1
+            """, interaction.user.id, slot.value, mevcut["isim"],
+                mevcut["ikon"], mevcut["bonus"], mevcut["nadirlik"])
+            await conn.execute("DELETE FROM pq_envanter WHERE id=$1", mevcut["id"])
+
+            # HP'yi max_hp'ye clamp et (kemer çıkarılınca max_hp düşebilir)
+            statlar = await self._get_statlar(interaction.user.id, karakter)
+            if karakter["hp"] > statlar["max_hp"]:
+                await conn.execute(
+                    "UPDATE pq_karakter SET hp=$2 WHERE discord_id=$1",
+                    interaction.user.id, statlar["max_hp"])
+
+        embed = discord.Embed(
+            title=f"🧤 {slot.name} Çıkarıldı",
+            description=f"{NADIRLIK_EMOJI.get(mevcut['nadirlik'], '⬜')} **{mevcut['isim']}** envantere geri konuldu.",
+            color=0x95A5A6,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
     # ── /iksir-kullan ────────────────────────────────────────
     @app_commands.command(name="iksir-kullan", description="Bir iksir kullanarak iyileş veya güçlen.")
     @app_commands.describe(iksir="Kullanmak istediğin iksirin adı")
@@ -773,13 +874,17 @@ class PixelQuestCog(commands.Cog):
             return
 
         async with database.pool.acquire() as conn:
-            item = await conn.fetchrow(
+            adaylar = await conn.fetch(
                 "SELECT * FROM pq_envanter WHERE discord_id=$1 AND tur='iksir' AND isim ILIKE $2",
                 interaction.user.id, f"%{iksir}%")
 
-            if not item:
+            if not adaylar:
                 await interaction.followup.send(f"❌ **{iksir}** envanterde bulunamadı!", ephemeral=True)
                 return
+
+            isimler = [r["isim"] for r in adaylar]
+            secilen_isim = _en_iyi_eslesme(iksir, isimler) or isimler[0]
+            item = next(r for r in adaylar if r["isim"] == secilen_isim)
 
             # İksir bilgisini bul
             iksir_data = None
@@ -855,12 +960,10 @@ class PixelQuestCog(commands.Cog):
             await interaction.followup.send("❌ Önce karakter oluştur!", ephemeral=True)
             return
 
-        # Dükkan ürününü bul
-        item_data = None
-        for item in DUKKAN:
-            if urun.lower() in item["isim"].lower():
-                item_data = item
-                break
+        # Dükkan ürününü bul (exact > startswith > contains)
+        isimler = [item["isim"] for item in DUKKAN]
+        secilen_isim = _en_iyi_eslesme(urun, isimler)
+        item_data = next((i for i in DUKKAN if i["isim"] == secilen_isim), None) if secilen_isim else None
 
         if not item_data:
             await interaction.followup.send(f"❌ **{urun}** dükkanda bulunamadı! `/pq-dükkan` ile ürünleri gör.", ephemeral=True)
