@@ -2,7 +2,6 @@
 
 import os
 import random
-import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -14,7 +13,7 @@ from utils.logger import setup_logger
 from config.pixel_quest_data import (
     IRKLAR, CANAVARLAR, LOOT_KATEGORILERI, LOOT_ISIMLERI,
     EKIPMANLAR, EKIPMAN_TURLERI, IKSIRLER,
-    SEVIYE_XP, NADIRLIK_RENK, NADIRLIK_EMOJI, SAVAS_COOLDOWN,
+    SEVIYE_XP, NADIRLIK_RENK, NADIRLIK_EMOJI, NADIRLIK_SIRA, SAVAS_COOLDOWN,
     SEVIYE_STAT_BONUS, DUKKAN, MALZEME_FIYAT,
     MALZEME_DROP_SANS, EKIPMAN_DROP_SANS, IKSIR_DROP_SANS,
     MOB_IKON_KLASOR,
@@ -140,8 +139,8 @@ def _kritik_mi(hiz: int) -> bool:
 
 
 def _dodge_mi(hiz: int) -> bool:
-    """Dodge şansı: hız * 0.5%  (Peri:10%, Ork:5%, Cüce:2.5%)"""
-    return random.random() < (hiz * 0.005)
+    """Dodge şansı: hız * 0.8%  (Peri:16%, Ork:8%, Cüce:4%)"""
+    return random.random() < (hiz * 0.008)
 
 
 # ── Irk Seçim View ───────────────────────────────────────
@@ -181,12 +180,8 @@ class PixelQuestCog(commands.Cog):
                     max_hp      INT NOT NULL,
                     xp          INT DEFAULT 0,
                     altin       INT DEFAULT 0,
-                    silah_id    INT,
-                    kalkan_id   INT,
-                    kemer_id    INT,
                     toplam_kill INT DEFAULT 0,
                     toplam_olum INT DEFAULT 0,
-                    en_derin_kat INT DEFAULT 0,
                     created_at  TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
@@ -375,7 +370,8 @@ class PixelQuestCog(commands.Cog):
         canavar, mob_tier = _canavar_sec(seviye)
 
         # ── Savaş simülasyonu ────────────────────────────────
-        oyuncu_hp = karakter["hp"]
+        # HP'yi max'a clamp et (kemer çıkarılmış olabilir)
+        oyuncu_hp = min(karakter["hp"], gercek_max_hp)
         canavar_hp = canavar["hp"]
         turlar = []
         tur_sayisi = 0
@@ -631,12 +627,18 @@ class PixelQuestCog(commands.Cog):
 
         async with database.pool.acquire() as conn:
             esyalar = await conn.fetch(
-                "SELECT * FROM pq_envanter WHERE discord_id=$1 ORDER BY tur, nadirlik DESC",
+                "SELECT * FROM pq_envanter WHERE discord_id=$1",
                 interaction.user.id)
 
         if not esyalar:
             await interaction.followup.send("📦 Envanterin boş! `/savaş` yaparak eşya kazan.", ephemeral=True)
             return
+
+        # Nadirlik sırasına göre sırala (mitik → yaygın)
+        esyalar = sorted(
+            esyalar,
+            key=lambda e: (e["tur"], -NADIRLIK_SIRA.get(e["nadirlik"], 0))
+        )
 
         ekipman_txt = []
         malzeme_txt = []

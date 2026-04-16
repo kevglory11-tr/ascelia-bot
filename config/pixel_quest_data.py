@@ -17,7 +17,7 @@ IRKLAR = {
         "isim": "Peri",
         "emoji": "🧚",
         "aciklama": "Yüksek saldırı ve hız, düşük HP ve savunma",
-        "hp": 75,
+        "hp": 90,
         "saldiri": 25,
         "savunma": 5,
         "hiz": 20,
@@ -220,6 +220,14 @@ NADIRLIK_RENK = {
     "nadir":    0x2196F3,
     "efsanevi": 0x9C27B0,
     "mitik":    0xF44336,
+}
+
+NADIRLIK_SIRA = {
+    "mitik":    5,
+    "efsanevi": 4,
+    "nadir":    3,
+    "uncommon": 2,
+    "yaygın":   1,
 }
 
 NADIRLIK_EMOJI = {
