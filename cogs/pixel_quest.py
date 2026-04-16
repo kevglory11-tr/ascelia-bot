@@ -396,23 +396,23 @@ class PixelQuestCog(commands.Cog):
             return
         self._cooldowns[interaction.user.id] = now
 
-        # HP kontrolü — ölüyse yeniden doğ
-        if karakter["hp"] <= 0:
-            async with database.pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE pq_karakter SET hp=max_hp WHERE discord_id=$1",
-                    interaction.user.id)
-            karakter["hp"] = karakter["max_hp"]
-
         # Stat hesapla (seviye + ekipman + buff)
         statlar = await self._get_statlar(interaction.user.id, karakter)
         seviye = _seviye_hesapla(karakter["xp"])
 
-        # Buff kullanıldı — temizle
-        self._buffs.pop(interaction.user.id, None)
-
-        # Max HP'yi güncelle (seviye büyümesi)
+        # Max HP (seviye + ekipman + buff dahil)
         gercek_max_hp = statlar["max_hp"]
+
+        # HP kontrolü — ölüyse gerçek max HP'ye dirilt (eski db.max_hp değil)
+        if karakter["hp"] <= 0:
+            async with database.pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE pq_karakter SET hp=$2, max_hp=$2 WHERE discord_id=$1",
+                    interaction.user.id, gercek_max_hp)
+            karakter["hp"] = gercek_max_hp
+
+        # Buff bu savaşta kullanıldı — temizle (statlar zaten hesaplandı)
+        self._buffs.pop(interaction.user.id, None)
 
         # Canavar seç
         canavar, mob_tier = _canavar_sec(seviye)
