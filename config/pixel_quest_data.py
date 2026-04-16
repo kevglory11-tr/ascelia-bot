@@ -224,11 +224,13 @@ SEVIYE_XP = {
 
 # ── Dükkan (altınla satın alınabilir) ────────────────────
 DUKKAN = [
-    {"isim": "Küçük Can İksiri", "fiyat": 25,  "etki": "hp",      "deger": 30,  "ikon": 1,  "nadirlik": "yaygın",   "aciklama": "+30 HP"},
-    {"isim": "Orta Can İksiri",  "fiyat": 80,  "etki": "hp",      "deger": 60,  "ikon": 5,  "nadirlik": "uncommon", "aciklama": "+60 HP"},
-    {"isim": "Büyük Can İksiri", "fiyat": 200, "etki": "hp",      "deger": 120, "ikon": 10, "nadirlik": "nadir",    "aciklama": "+120 HP"},
-    {"isim": "Saldırı İksiri",   "fiyat": 150, "etki": "saldiri", "deger": 5,   "ikon": 15, "nadirlik": "uncommon", "aciklama": "+5 Saldırı (1 savaş)"},
-    {"isim": "Savunma İksiri",   "fiyat": 150, "etki": "savunma", "deger": 5,   "ikon": 20, "nadirlik": "uncommon", "aciklama": "+5 Savunma (1 savaş)"},
+    {"isim": "Küçük Can İksiri", "fiyat": 25,   "etki": "hp",      "deger": 30,  "ikon": 1,  "nadirlik": "yaygın",   "aciklama": "+30 HP"},
+    {"isim": "Orta Can İksiri",  "fiyat": 80,   "etki": "hp",      "deger": 60,  "ikon": 5,  "nadirlik": "uncommon", "aciklama": "+60 HP"},
+    {"isim": "Büyük Can İksiri", "fiyat": 200,  "etki": "hp",      "deger": 120, "ikon": 10, "nadirlik": "nadir",    "aciklama": "+120 HP"},
+    {"isim": "Saldırı İksiri",   "fiyat": 150,  "etki": "saldiri", "deger": 5,   "ikon": 15, "nadirlik": "uncommon", "aciklama": "+5 Saldırı (1 savaş)"},
+    {"isim": "Savunma İksiri",   "fiyat": 150,  "etki": "savunma", "deger": 5,   "ikon": 20, "nadirlik": "uncommon", "aciklama": "+5 Savunma (1 savaş)"},
+    {"isim": "Hız İksiri",       "fiyat": 320,  "etki": "hiz",     "deger": 5,   "ikon": 25, "nadirlik": "nadir",    "aciklama": "+5 Hız (1 savaş)"},
+    {"isim": "Efsane İksir",     "fiyat": 900,  "etki": "hp",      "deger": 250, "ikon": 30, "nadirlik": "efsanevi", "aciklama": "+250 HP"},
 ]
 
 # ── Malzeme satış fiyatları ──────────────────────────────
