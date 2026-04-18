@@ -51,11 +51,16 @@ def _xp_bar(xp: int, max_xp: int, uzunluk: int = 12) -> str:
 
 
 def _canavar_sec(seviye: int):
-    """Seviyeye göre canavar havuzundan seç."""
-    if seviye >= 15:
+    """Seviyeye göre canavar havuzundan seç (tier'lar arası yumuşak geçiş)."""
+    # Yumuşak geçiş: tier sınırlarında %20-30 alt tier şansı
+    if seviye >= 17:
         tier = "elit"
-    elif seviye >= 8:
+    elif seviye >= 15:
+        tier = random.choices(["elit", "chaos"], weights=[70, 30], k=1)[0]
+    elif seviye >= 10:
         tier = "chaos"
+    elif seviye >= 8:
+        tier = random.choices(["chaos", "low"], weights=[70, 30], k=1)[0]
     else:
         tier = "low"
     return random.choice(CANAVARLAR[tier]), tier
@@ -432,15 +437,20 @@ class PixelQuestCog(commands.Cog):
         )
         intro = ui.panel("Karşılaşma", intro_body, badge="⚡",
                          color=ui.TIER_COLOR[mob_tier], guild=interaction.guild)
+        intro_msg = None
         try:
-            intro.set_thumbnail(url="attachment://mob_intro.png")
-            await interaction.followup.send(
+            intro.set_thumbnail(url="attachment://mob.png")
+            intro_msg = await interaction.followup.send(
                 embed=intro,
-                file=discord.File(mob_path_on, filename="mob_intro.png"),
+                file=discord.File(mob_path_on, filename="mob.png"),
                 ephemeral=True,
+                wait=True,
             )
         except Exception:
-            await interaction.followup.send(embed=intro, ephemeral=True)
+            try:
+                intro_msg = await interaction.followup.send(embed=intro, ephemeral=True, wait=True)
+            except Exception:
+                intro_msg = None
         await asyncio.sleep(1.2)
 
         # ── Savaş simülasyonu ────────────────────────────────
@@ -603,7 +613,10 @@ class PixelQuestCog(commands.Cog):
         yeni_seviye = _seviye_hesapla(karakter["xp"] + xp_kazanc)
         seviye_txt = ""
         if yeni_seviye > seviye:
-            yeni_max_hp = IRKLAR[karakter["irk"]]["hp"] + (yeni_seviye - 1) * SEVIYE_STAT_BONUS["hp"]
+            # Kemer + ekipman bonuslarını koru: gerçek max_hp yeniden hesapla
+            karakter["xp"] += xp_kazanc
+            yeni_statlar = await self._get_statlar(interaction.user.id, karakter)
+            yeni_max_hp = yeni_statlar["max_hp"]
             async with database.pool.acquire() as conn:
                 await conn.execute(
                     "UPDATE pq_karakter SET max_hp=$2, hp=$2 WHERE discord_id=$1",
@@ -678,16 +691,26 @@ class PixelQuestCog(commands.Cog):
         try:
             files = [discord.File(mob_path, filename="mob.png")]
             embed.set_thumbnail(url="attachment://mob.png")
-            # Kazanılan/berabere savaşlarda ırka özel skill ikonu author kısmında
+            # Kazanılan savaşlarda ırka özel skill ikonu author kısmında
             if kazandi and os.path.exists(skill_path):
                 files.append(discord.File(skill_path, filename="skill.png"))
                 embed.set_author(
                     name=f"{interaction.user.display_name} • {IRKLAR[karakter['irk']]['isim']}",
                     icon_url="attachment://skill.png",
                 )
-            await interaction.followup.send(embed=embed, files=files, ephemeral=True)
+            # Intro mesajı varsa düzenle (tek mesaj kalır), yoksa yeni gönder
+            if intro_msg:
+                await intro_msg.edit(embed=embed, attachments=files)
+            else:
+                await interaction.followup.send(embed=embed, files=files, ephemeral=True)
         except Exception:
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            try:
+                if intro_msg:
+                    await intro_msg.edit(embed=embed)
+                else:
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+            except Exception:
+                await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /pq-profil ───────────────────────────────────────────
     @app_commands.command(name="pq-profil", description="Pixel Quest karakterini görüntüle.")
@@ -1143,9 +1166,14 @@ class PixelQuestCog(commands.Cog):
             return
 
         async with database.pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE pq_karakter SET altin=altin-$2 WHERE discord_id=$1",
+            # Atomik altın düşürme (race condition koruması)
+            result = await conn.execute(
+                "UPDATE pq_karakter SET altin=altin-$2 WHERE discord_id=$1 AND altin>=$2",
                 interaction.user.id, item_data["fiyat"])
+            if result == "UPDATE 0":
+                await interaction.followup.send(
+                    "❌ Bakiye yetersiz! (eşzamanlı işlem tespit edildi)", ephemeral=True)
+                return
 
             await conn.execute("""
                 INSERT INTO pq_envanter (discord_id, tur, isim, ikon, bonus, nadirlik)
@@ -1304,7 +1332,7 @@ class PixelQuestCog(commands.Cog):
         async with database.pool.acquire() as conn:
             kusanili = await conn.fetch(
                 "SELECT tur, isim, bonus, nadirlik FROM pq_envanter "
-                "WHERE discord_id=$1 AND tur LIKE '%_kusanili'",
+                "WHERE discord_id=$1 AND tur IN ('silah_kusanili','kalkan_kusanili','kemer_kusanili')",
                 interaction.user.id)
         slot_emoji = {"silah_kusanili": ui.Icon.WEAPON,
                       "kalkan_kusanili": ui.Icon.SHIELD,
