@@ -104,23 +104,6 @@ class YardimCog(commands.Cog, name="Yardım"):
         v = f"{ui.Icon.ARROW} Günde 1 kez belirir • Haftalık top 3 {ui.Icon.GEM} kazanır\n" + v
         embed.add_field(name=n, value=v, inline=False)
 
-        # ── Pixel Quest ────────────────────────────────────────
-        embed.add_field(name=f"{ui.DIVIDER_FAT}", value="\u200b", inline=False)
-
-        n, v = _bolum("Pixel Quest RPG", ui.Icon.WEAPON, [
-            (E_DOT_A, "/karakter-oluştur", "Irk seçip başla"),
-            (E_DOT_A, "/savaş",             "Canavar savaşı"),
-            (E_DOT_B, "/pq-profil",         "Karakter kartı"),
-            (E_DOT_B, "/pq-envanter",       "Ekipman & malzeme"),
-            (E_DOT_C, "/kuşan",             "Ekipman kuşan"),
-            (E_DOT_C, "/pq-çıkar",          "Ekipman çıkar"),
-            (E_DOT_C, "/iksir-kullan",      "İksir tüket"),
-            (E_DOT_D, "/pq-dükkan",         "İksir satın al"),
-            (E_DOT_D, "/pq-sat",            "Malzemeleri sat"),
-            (E_DOT_D, "/pq-sıralama",       "Top 10 kahraman"),
-        ])
-        embed.add_field(name=n, value=v, inline=False)
-
         # ── Maç Tahmin ─────────────────────────────────────────
         embed.add_field(name=f"{ui.DIVIDER_FAT}", value="\u200b", inline=False)
 
