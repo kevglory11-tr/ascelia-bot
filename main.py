@@ -43,8 +43,6 @@ COGS = [
     "cogs.referans",
     # ── Ticket komutları ─────────────────────────────────────
     "cogs.ticket_komutlar",
-    # ── Pixel Quest RPG ──────────────────────────────────────
-    "cogs.pixel_quest",
 ]
 
 
