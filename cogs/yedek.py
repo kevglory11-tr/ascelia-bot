@@ -11,7 +11,10 @@ from utils.logger import setup_logger
 log = setup_logger("yedek")
 
 # ── Ayarlar ──────────────────────────────────────────────────
-PG_DUMP    = r"C:\Program Files\PostgreSQL\18\bin\pg_dump.exe"
+# Windows local'de tam yol, Railway'de PATH'ten bul
+import shutil
+_pg_dump_local = r"C:\Program Files\PostgreSQL\18\bin\pg_dump.exe"
+PG_DUMP    = _pg_dump_local if os.path.exists(_pg_dump_local) else (shutil.which("pg_dump") or "pg_dump")
 YEDEK_KLASOR = r"C:\Users\ALP\Desktop\Ascelia Yedek"
 MAX_YEDEK  = 14  # Kaç günlük yedek saklansın
 
@@ -26,6 +29,10 @@ class YedekCog(commands.Cog):
 
     @tasks.loop(hours=24)
     async def gunluk_yedek(self):
+        # Railway'de masaüstü yok, yedek sadece local'de çalışır
+        if not os.path.exists(r"C:\Users\ALP\Desktop"):
+            log.info("Railway ortamı — yedek atlandı (local değil)")
+            return
         await self._yedek_al()
 
     @gunluk_yedek.before_loop
