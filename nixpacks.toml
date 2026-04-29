@@ -1,2 +1,2 @@
 [phases.setup]
-nixPkgs = ["dejavu_fonts", "liberation_ttf", "noto-fonts"]
+nixPkgs = ["dejavu_fonts", "liberation_ttf", "noto-fonts", "postgresql"]
