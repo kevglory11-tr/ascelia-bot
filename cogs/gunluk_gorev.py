@@ -218,16 +218,26 @@ class AdminOnayView(discord.ui.View):
 
     @discord.ui.button(label="Onayla", style=discord.ButtonStyle.success, emoji="✅")
     async def onayla(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uye_obj = interaction.guild.get_member(self.discord_id)
+        isim    = uye_obj.display_name if uye_obj else self.isim
         async with database.pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE gunluk_gorev_log SET durum='onaylandi' WHERE discord_id=$1 AND gorev_id=$2 AND tarih=$3",
-                self.discord_id, self.gorev_id, self.tarih)
-            if not self.mp_odulu and self.odul_coin > 0:
-                uye_obj = interaction.guild.get_member(self.discord_id)
-                isim = uye_obj.display_name if uye_obj else self.isim
-                await database.add_coins(self.discord_id, isim, self.odul_coin,
-                                         aciklama=f"Günlük görev onayı: {self.gorev_id}")
-        # Rol kontrolü — admin onaylı görevlerde de rol terfi yapılmalı
+            async with conn.transaction():
+                await conn.execute(
+                    "UPDATE gunluk_gorev_log SET durum='onaylandi' WHERE discord_id=$1 AND gorev_id=$2 AND tarih=$3",
+                    self.discord_id, self.gorev_id, self.tarih)
+                if not self.mp_odulu and self.odul_coin > 0:
+                    await conn.execute("""
+                        INSERT INTO coins (discord_id, username, bakiye, toplam_kazanilan)
+                        VALUES ($1, $2, $3, $3)
+                        ON CONFLICT (discord_id) DO UPDATE
+                            SET bakiye           = coins.bakiye + EXCLUDED.bakiye,
+                                toplam_kazanilan = coins.toplam_kazanilan + EXCLUDED.bakiye,
+                                username         = EXCLUDED.username
+                    """, self.discord_id, isim, self.odul_coin)
+                    await conn.execute(
+                        "INSERT INTO coin_log (discord_id, miktar, tip, aciklama) VALUES ($1,$2,'kazanc',$3)",
+                        self.discord_id, self.odul_coin, f"Günlük görev onayı: {self.gorev_id}"
+                    )
         uye = interaction.guild.get_member(self.discord_id)
         if uye:
             cog = interaction.client.get_cog("GunlukGorevCog")
@@ -437,26 +447,37 @@ class GunlukGorevCog(commands.Cog):
         efektif_odul = gorev["odul"] + (10 if takviye and gorev["tur"] != "admin" else 0)
 
         async with database.pool.acquire() as conn:
-            mevcut = await conn.fetchval(
-                """SELECT id FROM gunluk_gorev_log
-                   WHERE discord_id=$1 AND gorev_id=$2 AND tarih=$3 AND durum='tamamlandi' AND ek_gorev=$4""",
-                member.id, gorev["id"], bugun, ek)
-            if mevcut:
-                return
+            async with conn.transaction():
+                mevcut = await conn.fetchval(
+                    """SELECT id FROM gunluk_gorev_log
+                       WHERE discord_id=$1 AND gorev_id=$2 AND tarih=$3 AND durum='tamamlandi' AND ek_gorev=$4""",
+                    member.id, gorev["id"], bugun, ek)
+                if mevcut:
+                    return
 
-            await conn.execute(
-                """INSERT INTO gunluk_gorev_log
-                   (discord_id, isim, gorev_id, gorev_baslik, durum, tarih, odul, ek_gorev)
-                   VALUES ($1,$2,$3,$4,'tamamlandi',$5,$6,$7)
-                   ON CONFLICT DO NOTHING""",
-                member.id, member.display_name,
-                gorev["id"], gorev["baslik"], bugun, efektif_odul, ek)
+                await conn.execute(
+                    """INSERT INTO gunluk_gorev_log
+                       (discord_id, isim, gorev_id, gorev_baslik, durum, tarih, odul, ek_gorev)
+                       VALUES ($1,$2,$3,$4,'tamamlandi',$5,$6,$7)
+                       ON CONFLICT DO NOTHING""",
+                    member.id, member.display_name,
+                    gorev["id"], gorev["baslik"], bugun, efektif_odul, ek)
 
-            yeni = await database.add_coins(
-                member.id, member.display_name, efektif_odul,
-                aciklama=f"Günlük görev: {gorev['baslik']}")
+                row = await conn.fetchrow("""
+                    INSERT INTO coins (discord_id, username, bakiye, toplam_kazanilan)
+                    VALUES ($1, $2, $3, $3)
+                    ON CONFLICT (discord_id) DO UPDATE
+                        SET bakiye           = coins.bakiye + EXCLUDED.bakiye,
+                            toplam_kazanilan = coins.toplam_kazanilan + EXCLUDED.bakiye,
+                            username         = EXCLUDED.username
+                    RETURNING bakiye
+                """, member.id, member.display_name, efektif_odul)
+                yeni = row["bakiye"]
+                await conn.execute(
+                    "INSERT INTO coin_log (discord_id, miktar, tip, aciklama) VALUES ($1,$2,'kazanc',$3)",
+                    member.id, efektif_odul, f"Günlük görev: {gorev['baslik']}"
+                )
 
-        # Rol kontrolü
         await self._rol_kontrol(member, guild)
 
         takviye_satir = f"\n⚡ **Görev Takviyesi:** +10 bonus coin!" if takviye and gorev["tur"] != "admin" else ""

@@ -112,11 +112,8 @@ async def profil_karti_olustur(
             bg_renk = (43, 45, 49)
         arka = Image.new("RGBA", (KART_W, KART_H), (*bg_renk, 255))
     else:
-        # Sağ tarafı biraz bulanıklaştır (okunaklılık için)
         arka = arka.convert("RGBA")
-        blur_bolge = arka.crop((0, 0, KART_W, KART_H))
-        blur_bolge = blur_bolge.filter(ImageFilter.GaussianBlur(radius=2))
-        # Hafif karartma
+        arka = arka.filter(ImageFilter.GaussianBlur(radius=2))
         karartma = Image.new("RGBA", (KART_W, KART_H), (0, 0, 0, 80))
         arka.paste(karartma, (0, 0), karartma)
 
@@ -171,11 +168,6 @@ async def profil_karti_olustur(
         stat_y = isim_y + 30
 
     # ── Sol istatistikler ─────────────────────────────────
-    def stat_satir(etiket, deger, y):
-        draw.text((isim_x, y),      etiket, font=font_etiket, fill=(160, 160, 180, 200))
-        draw.text((isim_x, y + 14), deger,  font=font_sayi,   fill=(255, 255, 255, 255))
-        return y + 40
-
     col2_x = isim_x + 110
     stat_y = max(stat_y, 155)
 
