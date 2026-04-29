@@ -9,6 +9,7 @@ import zipfile
 from datetime import datetime, timezone
 
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 
 import database
@@ -111,6 +112,17 @@ class YedekCog(commands.Cog):
         embed.set_footer(text="Geri yuklemek icin her tablo icin: COPY table FROM 'file.csv' CSV HEADER")
         await kanal.send(embed=embed, file=dosya)
         log.info(f"Railway yedek Discord kanalina yuklendi: {dosya_adi}")
+
+    @app_commands.command(name="yedek-al", description="Manuel DB yedegi al (Admin).")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def yedek_al(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await self._yedek_al()
+            await interaction.followup.send("✅ Yedek başarıyla alındı!", ephemeral=True)
+        except Exception as e:
+            log.error(f"Manuel yedek hatası: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Yedek alınamadı: {e}", ephemeral=True)
 
     async def _eski_yedekleri_temizle(self):
         try:

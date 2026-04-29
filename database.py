@@ -253,6 +253,21 @@ async def _migrate() -> None:
             """)
         except Exception as e:
             log.debug(f"Migrasyon atlandı (referans_log): {e}")
+
+        try:
+            await conn.execute(
+                "ALTER TABLE coins ADD COLUMN IF NOT EXISTS giris_serisi_max INT DEFAULT 0"
+            )
+        except Exception as e:
+            log.debug(f"Migrasyon atlandı (giris_serisi_max): {e}")
+
+        try:
+            await conn.execute(
+                "ALTER TABLE coins ADD COLUMN IF NOT EXISTS gorev_hatirlatici BOOLEAN DEFAULT FALSE"
+            )
+        except Exception as e:
+            log.debug(f"Migrasyon atlandı (gorev_hatirlatici): {e}")
+
     log.info("✅ Migrasyon tamamlandı.")
 
 
@@ -307,27 +322,67 @@ async def remove_coins(discord_id: int, miktar: int, aciklama: str = None) -> bo
 
 
 async def set_son_giris(discord_id: int, tarih_str: str) -> int:
-    """son_giris güncelle, seriyi artır. Yeni seri değerini döndürür."""
+    """son_giris güncelle, seriyi artır. Seri Koruma perki kontrol edilir. Yeni seri döner."""
     from datetime import date, timedelta
-    bugun  = date.fromisoformat(tarih_str)
-    dun    = bugun - timedelta(days=1)
+    bugun = date.fromisoformat(tarih_str)
+    dun   = bugun - timedelta(days=1)
     async with pool.acquire() as conn:
         kayit = await conn.fetchrow(
-            "SELECT son_giris, giris_serisi FROM coins WHERE discord_id=$1", discord_id
+            "SELECT son_giris, giris_serisi, giris_serisi_max FROM coins WHERE discord_id=$1", discord_id
         )
-        son    = kayit["son_giris"] if kayit else None
-        seri   = kayit["giris_serisi"] if kayit else 0
+        son  = kayit["son_giris"] if kayit else None
+        seri = kayit["giris_serisi"] if kayit else 0
+        maks = (kayit["giris_serisi_max"] if kayit else 0) or 0
 
         if son == dun:
-            yeni_seri = seri + 1   # dün girdiyse seri devam
+            yeni_seri = seri + 1
         else:
-            yeni_seri = 1          # atlama veya ilk giriş
+            # Streak sıfırlanacak — Seri Koruma perki var mı?
+            koruma = await conn.fetchrow(
+                "SELECT id FROM aktif_perk WHERE discord_id=$1 AND perk_id='seri_koruma' AND bitis_tarihi > NOW()",
+                discord_id
+            )
+            if koruma and seri > 0:
+                # Perki tüket, seriyi koru
+                await conn.execute(
+                    "DELETE FROM aktif_perk WHERE discord_id=$1 AND perk_id='seri_koruma'",
+                    discord_id
+                )
+                yeni_seri = seri + 1
+                log.info(f"Seri Koruma kullanıldı: {discord_id} (seri: {seri} → {yeni_seri})")
+            else:
+                yeni_seri = 1
 
+        yeni_maks = max(maks, yeni_seri)
         await conn.execute(
-            "UPDATE coins SET son_giris=$2, giris_serisi=$3 WHERE discord_id=$1",
-            discord_id, bugun, yeni_seri
+            "UPDATE coins SET son_giris=$2, giris_serisi=$3, giris_serisi_max=$4 WHERE discord_id=$1",
+            discord_id, bugun, yeni_seri, yeni_maks
         )
     return yeni_seri
+
+
+async def set_hatirlatici(discord_id: int, aktif: bool) -> None:
+    """Görev hatırlatıcısını açar/kapatır."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE coins SET gorev_hatirlatici=$2 WHERE discord_id=$1",
+            discord_id, aktif
+        )
+
+
+async def get_hatirlatici_kullanicilari(bugun: str) -> list:
+    """Hatırlatıcı açık olan ve bugün görevi tamamlamamış kullanıcıları döndürür."""
+    async with pool.acquire() as conn:
+        return await conn.fetch("""
+            SELECT c.discord_id FROM coins c
+            WHERE c.gorev_hatirlatici = TRUE
+            AND NOT EXISTS (
+                SELECT 1 FROM gunluk_gorev_log g
+                WHERE g.discord_id = c.discord_id
+                  AND g.tarih = $1
+                  AND g.durum IN ('tamamlandi', 'onaylandi')
+            )
+        """, bugun)
 
 
 async def get_leaderboard(limit: int = 10):
