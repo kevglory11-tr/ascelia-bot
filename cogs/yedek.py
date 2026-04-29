@@ -1,26 +1,23 @@
 # cogs/yedek.py - Otomatik gunluk DB yedekleme
-# Local: Masaustu klasorune kaydeder
+# pg_dump gerektirmez, asyncpg ile direkt CSV/ZIP olusturur.
+# Local: Masaustu/Ascelia Yedek klasorune kaydeder
 # Railway: YEDEK_KANAL_ID Discord kanalina yukler
 
-import asyncio
 import io
 import os
-import shutil
-import tempfile
+import zipfile
 from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands, tasks
 
+import database
 from utils.logger import setup_logger
 
 log = setup_logger("yedek")
 
-_pg_dump_local = r"C:\Program Files\PostgreSQL\18\bin\pg_dump.exe"
-PG_DUMP      = _pg_dump_local if os.path.exists(_pg_dump_local) else (shutil.which("pg_dump") or "pg_dump")
 YEDEK_KLASOR = r"C:\Users\ALP\Desktop\Ascelia Yedek"
 MAX_YEDEK    = 14
-
 IS_LOCAL     = os.path.exists(r"C:\Users\ALP\Desktop")
 
 
@@ -41,94 +38,92 @@ class YedekCog(commands.Cog):
         await self.bot.wait_until_ready()
 
     async def _yedek_al(self):
-        db_url = os.getenv("DATABASE_URL", "")
-        if not db_url:
-            log.error("DATABASE_URL bulunamadı, yedek alınamadı!")
+        if not database.pool:
+            log.error("DB pool hazir degil, yedek atlanidi!")
             return
-        if db_url.startswith("postgres://"):
-            db_url = db_url.replace("postgres://", "postgresql://", 1)
 
         tarih     = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M")
-        dosya_adi = f"ascelia_{tarih}.dump"
-
-        # pg_dump çıktısını geçici dosyaya yaz
-        with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tmp:
-            tmp_yol = tmp.name
+        dosya_adi = f"ascelia_{tarih}.zip"
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                PG_DUMP, "-Fc", db_url,
-                stdout=open(tmp_yol, "wb"),
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await proc.communicate()
+            zip_buf = io.BytesIO()
 
-            if proc.returncode != 0:
-                log.error(f"pg_dump hatası: {stderr.decode()}")
-                return
+            async with database.pool.acquire() as conn:
+                tables = await conn.fetch(
+                    "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
+                )
 
-            boyut = os.path.getsize(tmp_yol) // 1024
-            log.info(f"pg_dump tamamlandı: {dosya_adi} ({boyut} KB)")
+                with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for trow in tables:
+                        table = trow["tablename"]
+                        try:
+                            csv_buf = io.BytesIO()
+                            await conn.copy_from_table(
+                                table, output=csv_buf, format="csv", header=True
+                            )
+                            csv_buf.seek(0)
+                            zf.writestr(f"{table}.csv", csv_buf.read())
+                        except Exception as e:
+                            log.warning(f"Tablo atlanidi ({table}): {e}")
+
+            zip_buf.seek(0)
+            boyut_kb = zip_buf.getbuffer().nbytes // 1024
+            log.info(f"Yedek olusturuldu: {dosya_adi} ({boyut_kb} KB)")
 
             if IS_LOCAL:
-                await self._kaydet_local(tmp_yol, dosya_adi)
+                await self._kaydet_local(zip_buf, dosya_adi)
             else:
-                await self._yukle_discord(tmp_yol, dosya_adi, boyut)
+                await self._yukle_discord(zip_buf, dosya_adi, boyut_kb)
 
         except Exception as e:
             log.error(f"Yedek exception: {e}", exc_info=True)
-        finally:
-            if os.path.exists(tmp_yol):
-                os.remove(tmp_yol)
 
-    async def _kaydet_local(self, tmp_yol: str, dosya_adi: str):
+    async def _kaydet_local(self, buf: io.BytesIO, dosya_adi: str):
         os.makedirs(YEDEK_KLASOR, exist_ok=True)
         hedef = os.path.join(YEDEK_KLASOR, dosya_adi)
-        os.replace(tmp_yol, hedef)
-        log.info(f"✅ Local yedek: {hedef}")
+        with open(hedef, "wb") as f:
+            f.write(buf.read())
+        log.info(f"Local yedek kaydedildi: {hedef}")
         await self._eski_yedekleri_temizle()
 
-    async def _yukle_discord(self, tmp_yol: str, dosya_adi: str, boyut_kb: int):
+    async def _yukle_discord(self, buf: io.BytesIO, dosya_adi: str, boyut_kb: int):
         kanal_id = int(os.getenv("YEDEK_KANAL_ID", "0"))
         if not kanal_id:
-            log.error("YEDEK_KANAL_ID tanımlı değil — Railway yedek atlandı!")
+            log.error("YEDEK_KANAL_ID tanimli degil!")
             return
 
         kanal = self.bot.get_channel(kanal_id)
         if not kanal:
-            log.error(f"Yedek kanalı bulunamadı: {kanal_id}")
+            log.error(f"Yedek kanali bulunamadi: {kanal_id}")
             return
 
-        # 25 MB Discord limit kontrolü
         if boyut_kb > 24_000:
-            log.warning(f"Yedek dosyası çok büyük ({boyut_kb} KB) — Discord limitini aşıyor.")
+            log.warning(f"Yedek cok buyuk ({boyut_kb} KB), Discord limiti asiliyor.")
             return
 
-        with open(tmp_yol, "rb") as f:
-            dosya = discord.File(f, filename=dosya_adi)
-            embed = discord.Embed(
-                title="🗄️ Otomatik DB Yedek",
-                description=f"`{dosya_adi}` — **{boyut_kb} KB**",
-                color=0x2ECC71,
-                timestamp=datetime.now(timezone.utc),
-            )
-            embed.set_footer(text="Geri yüklemek için: pg_restore -d <DB_URL> <dosya>")
-            await kanal.send(embed=embed, file=dosya)
-
-        log.info(f"✅ Railway yedek Discord'a yüklendi: {dosya_adi}")
+        dosya = discord.File(buf, filename=dosya_adi)
+        embed = discord.Embed(
+            title="DB Yedek",
+            description=f"`{dosya_adi}` — **{boyut_kb} KB**",
+            color=0x2ECC71,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_footer(text="Geri yuklemek icin her tablo icin: COPY table FROM 'file.csv' CSV HEADER")
+        await kanal.send(embed=embed, file=dosya)
+        log.info(f"Railway yedek Discord kanalina yuklendi: {dosya_adi}")
 
     async def _eski_yedekleri_temizle(self):
         try:
             dosyalar = sorted([
                 os.path.join(YEDEK_KLASOR, f)
                 for f in os.listdir(YEDEK_KLASOR)
-                if f.startswith("ascelia_") and f.endswith(".dump")
+                if f.startswith("ascelia_") and f.endswith(".zip")
             ])
             for d in dosyalar[:-MAX_YEDEK]:
                 os.remove(d)
                 log.info(f"Eski yedek silindi: {d}")
         except Exception as e:
-            log.error(f"Temizleme hatası: {e}")
+            log.error(f"Temizleme hatasi: {e}")
 
 
 async def setup(bot: commands.Bot):
