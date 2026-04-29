@@ -1,8 +1,6 @@
-"""cogs/yedek.py — Otomatik gunluk DB yedekleme sistemi.
-
-Local (Windows): Masaustu/Ascelia Yedek klasorune kaydeder.
-Railway (production): Discord'daki YEDEK_KANAL_ID kanalina yukler.
-"""
+# cogs/yedek.py - Otomatik gunluk DB yedekleme
+# Local: Masaustu klasorune kaydeder
+# Railway: YEDEK_KANAL_ID Discord kanalina yukler
 
 import asyncio
 import io
