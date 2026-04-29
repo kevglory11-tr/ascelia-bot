@@ -45,6 +45,7 @@ COGS = [
     "cogs.ticket_komutlar",
     # ── Sistem ───────────────────────────────────────────────
     "cogs.yedek",
+    "cogs.hatirlatici",
 ]
 
 

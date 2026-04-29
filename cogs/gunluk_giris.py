@@ -108,6 +108,62 @@ class GunlukGirisCog(commands.Cog):
     async def gunluk(self, interaction: discord.Interaction):
         await self._gunluk_giris(interaction)
 
+    @app_commands.command(name="streak", description="Günlük giriş serinizi görüntüle.")
+    async def streak(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            kayit = await database.get_user(interaction.user.id)
+            if not kayit:
+                await interaction.followup.send(
+                    "Henüz giriş kaydın yok. `/günlük-giriş` kullanarak başla!",
+                    ephemeral=True)
+                return
+
+            seri = kayit["giris_serisi"] or 0
+            maks = (kayit["giris_serisi_max"] if "giris_serisi_max" in kayit.keys() else 0) or 0
+            koruma = await database.get_aktif_perk(interaction.user.id, "seri_koruma")
+
+            milestones = [7, 14, 21, 30, 60, 100]
+            idx = next((i for i, m in enumerate(milestones) if m > seri), None)
+
+            desc = [
+                f"🔥 **Mevcut Seri:** {seri} gün",
+                f"🏆 **Maksimum Seri:** {maks} gün",
+            ]
+
+            if idx is not None:
+                sonraki = milestones[idx]
+                onceki  = milestones[idx - 1] if idx > 0 else 0
+                aralik  = sonraki - onceki
+                ilerleme = seri - onceki
+                dolu = min(int(ilerleme / aralik * 10), 10)
+                bos  = 10 - dolu
+                kalan = sonraki - seri
+                desc += [
+                    "",
+                    f"🎯 **Hedef:** {sonraki} gün serisi",
+                    f"{'█' * dolu}{'░' * bos}  {seri}/{sonraki}",
+                    f"**{kalan} gün** daha!",
+                ]
+            else:
+                desc.append("\n👑 **Tüm hedefleri aştın!** Efsanevi seri!")
+
+            if koruma:
+                desc.append("\n🛡️ **Seri Koruma** aktif — bir gün kaçırsan bile serin korunur!")
+
+            embed = discord.Embed(
+                title="🔥 Giriş Serisi",
+                description="\n".join(desc),
+                color=0xFF6B35,
+            )
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            embed.set_footer(text="Her gün /günlük-giriş yap, seriyi koru!")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            log.error(f"streak hatası: {e}", exc_info=True)
+            await interaction.followup.send(f"{FAIL} Bir hata oluştu.", ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(GunlukGirisCog(bot))
