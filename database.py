@@ -201,34 +201,30 @@ async def _migrate() -> None:
                 await conn.execute(
                     f"ALTER TABLE coins ADD COLUMN IF NOT EXISTS {kolon} {tip}"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"Migrasyon atlandı ({kolon}): {e}")
 
-        # mac_bilgi tablosuna gercek_skor ekle
         try:
             await conn.execute(
                 "ALTER TABLE mac_bilgi ADD COLUMN IF NOT EXISTS gercek_skor TEXT DEFAULT NULL"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Migrasyon atlandı (gercek_skor): {e}")
 
-        # coins tablosuna luminary_bonus ekle
         try:
             await conn.execute(
                 "ALTER TABLE coins ADD COLUMN IF NOT EXISTS luminary_bonus INT DEFAULT 0"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Migrasyon atlandı (luminary_bonus): {e}")
 
-        # gunluk_gorev_log tablosuna ek_gorev ekle
         try:
             await conn.execute(
                 "ALTER TABLE gunluk_gorev_log ADD COLUMN IF NOT EXISTS ek_gorev BOOLEAN DEFAULT FALSE"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Migrasyon atlandı (ek_gorev): {e}")
 
-        # Patron haftalık ödül log tablosu
         try:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS patron_haftalik_odul_log (
@@ -241,9 +237,9 @@ async def _migrate() -> None:
                     UNIQUE (hafta_no, discord_id)
                 )
             """)
-        except Exception:
-            pass
-        # Referans sistemi tablosu
+        except Exception as e:
+            log.debug(f"Migrasyon atlandı (patron_haftalik_odul_log): {e}")
+
         try:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS referans_log (
@@ -255,8 +251,8 @@ async def _migrate() -> None:
                     UNIQUE (davet_edilen_id)
                 )
             """)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Migrasyon atlandı (referans_log): {e}")
     log.info("✅ Migrasyon tamamlandı.")
 
 
@@ -545,6 +541,18 @@ async def perk_satin_alma_kaydet(discord_id: int, perk_id: str) -> None:
             "INSERT INTO perk_satin_alma (discord_id, perk_id, tarih, hafta_no) VALUES ($1,$2,$3,$4)",
             discord_id, perk_id, bugun, hafta_no
         )
+
+
+async def get_patron_perkler_gunluk(discord_id: int) -> set:
+    """Patron saldırısı için tüm aktif günlük perkleri tek sorguda döndürür."""
+    bugun     = _tr_bugun()
+    aranan    = ["patron_guclu_darbe", "patron_kritik_sans", "patron_kritik_hasar", "patron_ekstra_saldiri"]
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT perk_id FROM perk_satin_alma WHERE discord_id=$1 AND tarih=$2 AND perk_id = ANY($3)",
+            discord_id, bugun, aranan
+        )
+    return {r["perk_id"] for r in rows}
 
 
 async def temizle_suresi_dolan_perkler(perk_idler: list = None) -> list:

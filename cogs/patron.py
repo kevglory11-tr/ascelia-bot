@@ -11,7 +11,8 @@ import database
 from utils.logger import setup_logger
 from utils.patron_gorseli import patron_gorseli_olustur
 from config.coin_settings import (
-    PATRON_KANAL_ID, PATRON_MIN_SAAT, PATRON_MAX_SAAT,
+    PATRON_KANAL_ID, PATRON_SONUC_KANAL_ID,
+    PATRON_MIN_SAAT, PATRON_MAX_SAAT,
     PATRON_HP, PATRON_SURE_DK, PATRON_MAX_SALDIRI,
     PATRON_HASAR_MIN, PATRON_HASAR_MAX, BILDIRIM_KANAL_ID,
     PATRON_MAX_INDIRIM_SN, PATRON_INDIRIM_ESIK,
@@ -46,11 +47,12 @@ class PatronCog(commands.Cog):
         self.bot              = bot
         self.aktif_patron     = None   # {"mesaj", "patron_id", "bitis", "katilimcilar": {uid: hasar}}
         self.patron_hp        = 0
-        self.patron_max_hp    = 0      # Scaling ile büyüyen max HP
+        self.patron_max_hp    = 0
         self.kalan_sure       = 0
         self.indirilen_toplam = 0
         self.unique_yazanlar  = set()
         self._hp_lock         = asyncio.Lock()
+        self._patron_wakeup   = asyncio.Event()
         self.bot.loop.create_task(self._dongu())
         self.bot.loop.create_task(self._perk_bildirim_dongu())
         self.bot.loop.create_task(self._haftalik_odul_dongu())
@@ -66,9 +68,15 @@ class PatronCog(commands.Cog):
                 self.unique_yazanlar  = set()
                 log.info(f"Sonraki patron: {self.kalan_sure//3600}s {(self.kalan_sure%3600)//60}dk sonra")
 
+                self._patron_wakeup.clear()
                 while self.kalan_sure > 0:
-                    await asyncio.sleep(1)
-                    self.kalan_sure -= 1
+                    step = min(self.kalan_sure, 30)
+                    try:
+                        await asyncio.wait_for(self._patron_wakeup.wait(), timeout=step)
+                        self._patron_wakeup.clear()
+                    except asyncio.TimeoutError:
+                        pass
+                    self.kalan_sure = max(0, self.kalan_sure - step)
 
                 await self._gonder()
             except asyncio.CancelledError:
@@ -224,17 +232,17 @@ class PatronCog(commands.Cog):
 
     # ── Hasar hesapla ────────────────────────────────────────────
     async def _hasar_hesapla(self, discord_id: int) -> tuple[int, bool]:
-        base = random.randint(PATRON_HASAR_MIN, PATRON_HASAR_MAX)
+        base    = random.randint(PATRON_HASAR_MIN, PATRON_HASAR_MAX)
+        perkler = await database.get_patron_perkler_gunluk(discord_id)
 
-        guclu = await database.perk_gunluk_limit_kontrol(discord_id, "patron_guclu_darbe")
-        if guclu:
+        if "patron_guclu_darbe" in perkler:
             base += 8
 
-        crit_rate = 0.25 if await database.perk_gunluk_limit_kontrol(discord_id, "patron_kritik_sans") else 0.0
+        crit_rate = 0.25 if "patron_kritik_sans" in perkler else 0.0
         crit      = random.random() < crit_rate
 
         if crit:
-            crit_carpan = 1.15 if await database.perk_gunluk_limit_kontrol(discord_id, "patron_kritik_hasar") else 1.0
+            crit_carpan = 1.15 if "patron_kritik_hasar" in perkler else 1.0
             hasar = int(base * crit_carpan)
         else:
             hasar = base
@@ -300,13 +308,14 @@ class PatronCog(commands.Cog):
             pass
 
         # Sıralama sonuç kanalı
-        SONUC_KANAL_ID = 1465132633494388828
-        sonuc_kanal = self.bot.get_channel(SONUC_KANAL_ID)
+        sonuc_kanal = self.bot.get_channel(PATRON_SONUC_KANAL_ID) if PATRON_SONUC_KANAL_ID else None
         if not sonuc_kanal:
             try:
-                sonuc_kanal = await self.bot.fetch_channel(SONUC_KANAL_ID)
+                sonuc_kanal = await self.bot.fetch_channel(PATRON_SONUC_KANAL_ID) if PATRON_SONUC_KANAL_ID else None
             except Exception:
-                sonuc_kanal = kanal  # fallback: aynı kanala at
+                pass
+        if not sonuc_kanal:
+            sonuc_kanal = kanal  # fallback: aynı kanala at
 
         if kacan:
             siralama = await database.patron_hasar_siralaması(patron_id, limit=10)
@@ -332,9 +341,10 @@ class PatronCog(commands.Cog):
         haftalik = await database.patron_haftalik_siralama(hafta_no, limit=5)
 
         # Patron kanalına kısa bilgi (10 sn sonra silinir)
+        kanal_ref = f" <#{PATRON_SONUC_KANAL_ID}> kanalında." if PATRON_SONUC_KANAL_ID else "!"
         embed = discord.Embed(
             title=f"{SKULL} Patron Yenildi!",
-            description=f"Topluluk patronu devirdi! Sıralama <#{SONUC_KANAL_ID}> kanalında.",
+            description=f"Topluluk patronu devirdi! Sıralama{kanal_ref}",
             color=0xFFD700,
         )
         await kanal.send(embed=embed, delete_after=10)
@@ -354,11 +364,12 @@ class PatronCog(commands.Cog):
         )
         s_embed.set_footer(text=f"Ödüller Pazartesi 00:00 TR · {hafta_no}")
 
-        mentions = " ".join([
-            kanal.guild.get_member(r["discord_id"]).mention
-            for r in siralama[:3]
-            if kanal.guild.get_member(r["discord_id"])
-        ])
+        mention_listesi = []
+        for r in siralama[:3]:
+            uye = kanal.guild.get_member(r["discord_id"])
+            if uye:
+                mention_listesi.append(uye.mention)
+        mentions = " ".join(mention_listesi)
         await sonuc_kanal.send(content=mentions if mentions else None, embed=s_embed)
         log.info(f"Patron yenildi: {patron_id[:8]} — {len(siralama)} katılımcı")
 
@@ -536,6 +547,7 @@ class PatronCog(commands.Cog):
                 self.kalan_sure       -= indirim
                 self.indirilen_toplam += indirim
                 self.unique_yazanlar   = set()
+                self._patron_wakeup.set()
                 log.info(
                     f"Patron {indirim//60}dk erken gelecek! "
                     f"(Toplam indirim: {self.indirilen_toplam//3600}s {(self.indirilen_toplam%3600)//60}dk, "

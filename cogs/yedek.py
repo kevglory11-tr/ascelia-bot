@@ -1,22 +1,29 @@
-"""cogs/yedek.py — Otomatik günlük DB yedekleme sistemi."""
+"""cogs/yedek.py — Otomatik günlük DB yedekleme sistemi.
+
+Local (Windows): C:\Users\ALP\Desktop\Ascelia Yedek klasörüne kaydeder.
+Railway (production): Discord'daki YEDEK_KANAL_ID kanalına yükler.
+"""
 
 import asyncio
+import io
 import os
-import subprocess
+import shutil
+import tempfile
 from datetime import datetime, timezone
+
+import discord
 from discord.ext import commands, tasks
 
 from utils.logger import setup_logger
 
 log = setup_logger("yedek")
 
-# ── Ayarlar ──────────────────────────────────────────────────
-# Windows local'de tam yol, Railway'de PATH'ten bul
-import shutil
 _pg_dump_local = r"C:\Program Files\PostgreSQL\18\bin\pg_dump.exe"
-PG_DUMP    = _pg_dump_local if os.path.exists(_pg_dump_local) else (shutil.which("pg_dump") or "pg_dump")
+PG_DUMP      = _pg_dump_local if os.path.exists(_pg_dump_local) else (shutil.which("pg_dump") or "pg_dump")
 YEDEK_KLASOR = r"C:\Users\ALP\Desktop\Ascelia Yedek"
-MAX_YEDEK  = 14  # Kaç günlük yedek saklansın
+MAX_YEDEK    = 14
+
+IS_LOCAL     = os.path.exists(r"C:\Users\ALP\Desktop")
 
 
 class YedekCog(commands.Cog):
@@ -29,10 +36,6 @@ class YedekCog(commands.Cog):
 
     @tasks.loop(hours=24)
     async def gunluk_yedek(self):
-        # Railway'de masaüstü yok, yedek sadece local'de çalışır
-        if not os.path.exists(r"C:\Users\ALP\Desktop"):
-            log.info("Railway ortamı — yedek atlandı (local değil)")
-            return
         await self._yedek_al()
 
     @gunluk_yedek.before_loop
@@ -44,47 +47,88 @@ class YedekCog(commands.Cog):
         if not db_url:
             log.error("DATABASE_URL bulunamadı, yedek alınamadı!")
             return
-
-        # postgresql:// → postgres:// uyumluluğu
         if db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-        os.makedirs(YEDEK_KLASOR, exist_ok=True)
+        tarih     = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M")
+        dosya_adi = f"ascelia_{tarih}.dump"
 
-        tarih = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M")
-        dosya = os.path.join(YEDEK_KLASOR, f"ascelia_{tarih}.dump")
+        # pg_dump çıktısını geçici dosyaya yaz
+        with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tmp:
+            tmp_yol = tmp.name
 
         try:
             proc = await asyncio.create_subprocess_exec(
                 PG_DUMP, "-Fc", db_url,
-                stdout=open(dosya, "wb"),
+                stdout=open(tmp_yol, "wb"),
                 stderr=asyncio.subprocess.PIPE,
             )
             _, stderr = await proc.communicate()
 
-            if proc.returncode == 0:
-                boyut = os.path.getsize(dosya) // 1024
-                log.info(f"✅ Yedek alındı: {dosya} ({boyut}KB)")
-                await self._eski_yedekleri_temizle()
+            if proc.returncode != 0:
+                log.error(f"pg_dump hatası: {stderr.decode()}")
+                return
+
+            boyut = os.path.getsize(tmp_yol) // 1024
+            log.info(f"pg_dump tamamlandı: {dosya_adi} ({boyut} KB)")
+
+            if IS_LOCAL:
+                await self._kaydet_local(tmp_yol, dosya_adi)
             else:
-                log.error(f"❌ Yedek hatası: {stderr.decode()}")
-                if os.path.exists(dosya):
-                    os.remove(dosya)
+                await self._yukle_discord(tmp_yol, dosya_adi, boyut)
+
         except Exception as e:
-            log.error(f"❌ Yedek exception: {e}")
+            log.error(f"Yedek exception: {e}", exc_info=True)
+        finally:
+            if os.path.exists(tmp_yol):
+                os.remove(tmp_yol)
+
+    async def _kaydet_local(self, tmp_yol: str, dosya_adi: str):
+        os.makedirs(YEDEK_KLASOR, exist_ok=True)
+        hedef = os.path.join(YEDEK_KLASOR, dosya_adi)
+        os.replace(tmp_yol, hedef)
+        log.info(f"✅ Local yedek: {hedef}")
+        await self._eski_yedekleri_temizle()
+
+    async def _yukle_discord(self, tmp_yol: str, dosya_adi: str, boyut_kb: int):
+        kanal_id = int(os.getenv("YEDEK_KANAL_ID", "0"))
+        if not kanal_id:
+            log.error("YEDEK_KANAL_ID tanımlı değil — Railway yedek atlandı!")
+            return
+
+        kanal = self.bot.get_channel(kanal_id)
+        if not kanal:
+            log.error(f"Yedek kanalı bulunamadı: {kanal_id}")
+            return
+
+        # 25 MB Discord limit kontrolü
+        if boyut_kb > 24_000:
+            log.warning(f"Yedek dosyası çok büyük ({boyut_kb} KB) — Discord limitini aşıyor.")
+            return
+
+        with open(tmp_yol, "rb") as f:
+            dosya = discord.File(f, filename=dosya_adi)
+            embed = discord.Embed(
+                title="🗄️ Otomatik DB Yedek",
+                description=f"`{dosya_adi}` — **{boyut_kb} KB**",
+                color=0x2ECC71,
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.set_footer(text="Geri yüklemek için: pg_restore -d <DB_URL> <dosya>")
+            await kanal.send(embed=embed, file=dosya)
+
+        log.info(f"✅ Railway yedek Discord'a yüklendi: {dosya_adi}")
 
     async def _eski_yedekleri_temizle(self):
-        """MAX_YEDEK'ten fazla dosya varsa en eskileri sil."""
         try:
             dosyalar = sorted([
                 os.path.join(YEDEK_KLASOR, f)
                 for f in os.listdir(YEDEK_KLASOR)
                 if f.startswith("ascelia_") and f.endswith(".dump")
             ])
-            silinecek = dosyalar[:-MAX_YEDEK] if len(dosyalar) > MAX_YEDEK else []
-            for d in silinecek:
+            for d in dosyalar[:-MAX_YEDEK]:
                 os.remove(d)
-                log.info(f"🗑️ Eski yedek silindi: {d}")
+                log.info(f"Eski yedek silindi: {d}")
         except Exception as e:
             log.error(f"Temizleme hatası: {e}")
 
