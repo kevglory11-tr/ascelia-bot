@@ -1,7 +1,7 @@
-"""cogs/yedek.py — Otomatik günlük DB yedekleme sistemi.
+"""cogs/yedek.py — Otomatik gunluk DB yedekleme sistemi.
 
-Local (Windows): C:\Users\ALP\Desktop\Ascelia Yedek klasörüne kaydeder.
-Railway (production): Discord'daki YEDEK_KANAL_ID kanalına yükler.
+Local (Windows): Masaustu/Ascelia Yedek klasorune kaydeder.
+Railway (production): Discord'daki YEDEK_KANAL_ID kanalina yukler.
 """
 
 import asyncio
