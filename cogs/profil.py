@@ -144,42 +144,28 @@ class ProfilCog(commands.Cog):
                 log.error(f"Kart üretimi başarısız: {e}", exc_info=True)
                 dosya = None
 
-            # Rozet listesi (embed olarak aşağı ekle)
-            rozet_listesi = await database.get_rozet_listesi(hedef.id)
-            kostumler     = await database.get_costumes(hedef.id)
-
-            embed = discord.Embed(color=int(renk, 16) if renk else 0x2b2d31)
             if dosya:
-                embed.set_image(url="attachment://profil.png")
-
-            if rozet_listesi:
-                tum = [r["isim"] for r in _tum_rozetler() if r["id"] in rozet_listesi]
-                satirlar = []
-                toplam   = 0
-                for isim in tum:
-                    satir = f"🏅 {isim}"
-                    if toplam + len(satir) + 1 > 1000:
-                        satirlar.append(f"_...ve {len(tum) - len(satirlar)} tane daha_")
-                        break
-                    satirlar.append(satir)
-                    toplam += len(satir) + 1
-                embed.add_field(
-                    name=f"🏅 Rozetler ({len(tum)}/{len(_tum_rozetler())})",
-                    value="\n".join(satirlar),
-                    inline=False,
-                )
-
-            if kostumler:
-                son3 = [f"{k['costume_name']} `{k['rarity']}`" for k in kostumler[:5]]
-                embed.add_field(
-                    name=f"🎭 Kostümler ({len(kostumler)} adet)",
-                    value="\n".join(son3),
-                    inline=False,
-                )
-
-            if dosya:
-                await interaction.followup.send(file=dosya, embed=embed)
+                # Plain file — embed yok, kart tam boyut görünür
+                await interaction.followup.send(file=dosya)
             else:
+                # Görsel üretilemezse sade embed fallback
+                rozet_listesi = await database.get_rozet_listesi(hedef.id)
+                embed = discord.Embed(
+                    title=f"{hedef.display_name} — Profil",
+                    color=int(renk, 16) if renk else 0x2b2d31,
+                    description=(
+                        f"**Level:** {level}\n"
+                        f"**Coins:** {bakiye:,}\n"
+                        f"**Sıralama:** #{sira:,}"
+                    ),
+                )
+                if rozet_listesi:
+                    tum = [r["isim"] for r in _tum_rozetler() if r["id"] in rozet_listesi]
+                    embed.add_field(
+                        name=f"🏅 Rozetler ({len(tum)})",
+                        value="\n".join(f"🏅 {n}" for n in tum[:10]),
+                        inline=False,
+                    )
                 await interaction.followup.send(embed=embed)
 
         except Exception as e:
