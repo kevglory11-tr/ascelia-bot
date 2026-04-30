@@ -1,85 +1,137 @@
-"""
-utils/profil_karti.py — Dinamik profil kartı üretici.
-PIL/Pillow ile arka plan görseli üzerine kullanıcı bilgilerini çizer.
-"""
+# utils/profil_karti.py — Profil karti uretici v2
+# Tamamen yeniden tasarlandi: modern layout, bio kart icinde, accent renk sistemi.
 
 import io
-import textwrap
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
-import aiohttp
-import asyncio
 import os
+import glob
+import aiohttp
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-# Font yolları — Railway'de sistem fontları
-FONT_YOLLARI = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-    "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
-]
-FONT_NORMAL_YOLLARI = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-    "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
-]
-
-KART_W  = 900
-KART_H  = 300
-AVATAR_BOYUT = 110
-PANEL_X = 20   # Sol panel başlangıcı
-PANEL_W = 260  # Sol panel genişliği
+KART_W   = 960
+KART_H   = 300
+AV_SIZE  = 112   # avatar diameter
+PAD      = 20    # genel kenar boslugu
+LEFT_BAR = 4     # sol accent cubugu genisligi
+TEXT_X   = PAD + LEFT_BAR + AV_SIZE + 22   # metin baslangiç x
 
 
-def _font_yukle(boyut: int, kalin: bool = True) -> ImageFont.FreeTypeFont:
-    yollar = FONT_YOLLARI if kalin else FONT_NORMAL_YOLLARI
-    for yol in yollar:
-        if os.path.exists(yol):
-            try:
-                return ImageFont.truetype(yol, boyut)
-            except Exception:
+# ── Font bulma (Railway + Windows destekli) ────────────────────────────────────
+
+def _find_font_path(names: list[str]) -> str | None:
+    dirs = [
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        "/run/current-system/sw/share/fonts",
+        "/nix/store",
+        "C:/Windows/Fonts",
+    ]
+    for name in names:
+        # Direct check first (fast)
+        for d in dirs:
+            direct = os.path.join(d, name)
+            if os.path.exists(direct):
+                return direct
+        # Recursive search
+        for d in dirs:
+            if not os.path.isdir(d):
                 continue
+            matches = glob.glob(os.path.join(d, "**", name), recursive=True)
+            if matches:
+                return matches[0]
+    return None
+
+
+_FONT_BOLD_PATH  = _find_font_path([
+    "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf",
+    "FreeSansBold.ttf", "Ubuntu-B.ttf", "arialbd.ttf",
+])
+_FONT_PLAIN_PATH = _find_font_path([
+    "DejaVuSans.ttf", "LiberationSans-Regular.ttf",
+    "FreeSans.ttf", "Ubuntu-R.ttf", "arial.ttf",
+])
+
+
+def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
+    path = _FONT_BOLD_PATH if bold else _FONT_PLAIN_PATH
+    if path:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            pass
     return ImageFont.load_default()
 
 
-async def _gorsel_indir(url: str, boyut: tuple = None) -> Image.Image | None:
+# ── Yardimci fonksiyonlar ──────────────────────────────────────────────────────
+
+async def _fetch(url: str, size: tuple | None = None) -> Image.Image | None:
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                if resp.status == 200:
-                    data = await resp.read()
-                    img  = Image.open(io.BytesIO(data)).convert("RGBA")
-                    if boyut:
-                        img = img.resize(boyut, Image.LANCZOS)
+        async with aiohttp.ClientSession() as ses:
+            async with ses.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
+                if r.status == 200:
+                    img = Image.open(io.BytesIO(await r.read())).convert("RGBA")
+                    if size:
+                        img = img.resize(size, Image.LANCZOS)
                     return img
     except Exception:
         return None
 
 
-def _yuvarlak_maske(boyut: int) -> Image.Image:
-    """Daire şeklinde maske üretir."""
-    maske = Image.new("L", (boyut, boyut), 0)
-    draw  = ImageDraw.Draw(maske)
-    draw.ellipse((0, 0, boyut, boyut), fill=255)
-    return maske
+def _circle_mask(size: int) -> Image.Image:
+    m = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(m).ellipse((0, 0, size - 1, size - 1), fill=255)
+    return m
 
 
-def _exp_bar_ciz(draw: ImageDraw.Draw, x: int, y: int, genislik: int, yukseklik: int,
-                  exp: int, gereken: int):
-    oran  = min(exp / gereken, 1.0)
-    dolu  = int(genislik * oran)
+def _parse_hex(renk_hex: str) -> tuple[int, int, int]:
+    try:
+        h = renk_hex.strip("#")
+        return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    except Exception:
+        return (43, 45, 49)
 
-    # Arka plan
-    draw.rounded_rectangle([x, y, x + genislik, y + yukseklik],
-                            radius=yukseklik // 2, fill=(40, 40, 60, 200))
-    # Dolu kısım
-    if dolu > 0:
-        draw.rounded_rectangle([x, y, x + dolu, y + yukseklik],
-                                radius=yukseklik // 2, fill=(147, 51, 234, 255))
-    # Parlama efekti (üst şerit)
-    draw.rounded_rectangle([x + 4, y + 3, x + max(dolu - 4, 4), y + yukseklik // 2],
-                            radius=2, fill=(200, 150, 255, 100))
 
+def _accent(renk_hex: str) -> tuple[int, int, int]:
+    r, g, b = _parse_hex(renk_hex)
+    m = max(r, g, b)
+    if m < 90:
+        f = 200 / max(m, 1)
+        r, g, b = min(int(r * f), 255), min(int(g * f), 255), min(int(b * f), 255)
+    return (r, g, b)
+
+
+def _build_background(renk_hex: str) -> Image.Image:
+    r, g, b = _parse_hex(renk_hex)
+    # Cok karanlik yap, hafif gradient
+    dr = max(r // 6, 10)
+    dg = max(g // 6, 10)
+    db = max(b // 6 + 8, 15)
+    img = Image.new("RGBA", (KART_W, KART_H), (dr, dg, db, 255))
+    # Sola dogru hafif aydinlanma
+    draw = ImageDraw.Draw(img)
+    for x in range(200):
+        a = int(14 * (1 - x / 200))
+        draw.line([(x + LEFT_BAR, 0), (x + LEFT_BAR, KART_H)], fill=(255, 255, 255, a))
+    return img
+
+
+def _draw_xp_bar(draw: ImageDraw.Draw, x: int, y: int, w: int, h: int,
+                  exp: int, gereken: int, acc: tuple):
+    oran = min(exp / max(gereken, 1), 1.0)
+    dolu = int(w * oran)
+    r = h // 2
+    # Arkaplan
+    draw.rounded_rectangle([x, y, x + w, y + h], radius=r, fill=(20, 20, 35, 220))
+    # Dolu kisim
+    if dolu > r:
+        draw.rounded_rectangle([x, y, x + dolu, y + h], radius=r, fill=(*acc, 255))
+        # Parlama
+        shine_w = max(dolu - 6, 0)
+        if shine_w > 0:
+            draw.rounded_rectangle([x + 3, y + 2, x + 3 + shine_w, y + h // 2],
+                                   radius=2, fill=(255, 255, 255, 40))
+
+
+# ── Ana fonksiyon ──────────────────────────────────────────────────────────────
 
 async def profil_karti_olustur(
     kullanici_adi: str,
@@ -92,121 +144,138 @@ async def profil_karti_olustur(
     aktif_rozet:   str | None,
     arka_plan_url: str | None,
     renk_hex:      str = "2b2d31",
+    bio:           str | None = None,
 ) -> io.BytesIO:
-    """
-    Profil kartı üretir ve BytesIO olarak döndürür.
-    Discord'a File olarak gönderilebilir.
-    """
 
-    # ── Arka plan ──────────────────────────────────────────
+    acc = _accent(renk_hex)
+
+    # ── Arkaplan ──────────────────────────────────────────────
     if arka_plan_url:
-        arka = await _gorsel_indir(arka_plan_url, (KART_W, KART_H))
+        bg = await _fetch(arka_plan_url, (KART_W, KART_H))
     else:
-        arka = None
+        bg = None
 
-    if arka is None:
-        # Gradient arka plan (fallback)
-        try:
-            bg_renk = tuple(int(renk_hex[i:i+2], 16) for i in (0, 2, 4))
-        except Exception:
-            bg_renk = (43, 45, 49)
-        arka = Image.new("RGBA", (KART_W, KART_H), (*bg_renk, 255))
+    if bg:
+        kart = bg.convert("RGBA").filter(ImageFilter.GaussianBlur(3))
+        # Karanlik overlay
+        overlay = Image.new("RGBA", (KART_W, KART_H), (0, 0, 0, 150))
+        kart.paste(overlay, (0, 0), overlay)
     else:
-        arka = arka.convert("RGBA")
-        arka = arka.filter(ImageFilter.GaussianBlur(radius=2))
-        karartma = Image.new("RGBA", (KART_W, KART_H), (0, 0, 0, 80))
-        arka.paste(karartma, (0, 0), karartma)
+        kart = _build_background(renk_hex)
 
-    kart = arka.copy()
     draw = ImageDraw.Draw(kart)
 
-    # ── Sol yarı saydam panel ──────────────────────────────
-    panel = Image.new("RGBA", (PANEL_W + 40, KART_H), (15, 15, 25, 200))
+    # ── Sol accent cubugu ──────────────────────────────────────
+    draw.rectangle([(0, 0), (LEFT_BAR - 1, KART_H)], fill=(*acc, 255))
+
+    # ── Sol karanlik panel (avatar alani) ─────────────────────
+    panel_w = PAD + LEFT_BAR + AV_SIZE + 14
+    panel = Image.new("RGBA", (panel_w, KART_H), (0, 0, 0, 90))
     kart.paste(panel, (0, 0), panel)
 
-    # Panel kenar vurgusu
-    draw.line([(PANEL_W + 40, 0), (PANEL_W + 40, KART_H)], fill=(147, 51, 234, 180), width=2)
+    # ── Avatar ────────────────────────────────────────────────
+    av_x = LEFT_BAR + PAD
+    av_y = (KART_H - AV_SIZE) // 2   # dikey ortalama
 
-    # ── Avatar ────────────────────────────────────────────
-    avatar = await _gorsel_indir(avatar_url, (AVATAR_BOYUT, AVATAR_BOYUT))
-    av_x   = 20
-    av_y   = 20
+    # Dis halka (accent rengi, 3px)
+    ring_r = AV_SIZE // 2 + 4
+    ring_cx = av_x + AV_SIZE // 2
+    ring_cy = av_y + AV_SIZE // 2
+    draw.ellipse(
+        [ring_cx - ring_r, ring_cy - ring_r, ring_cx + ring_r, ring_cy + ring_r],
+        outline=(*acc, 255), width=3
+    )
 
-    if avatar:
-        avatar = avatar.convert("RGBA")
-        # Daire maske
-        maske  = _yuvarlak_maske(AVATAR_BOYUT)
-        avatar_yuvarlak = Image.new("RGBA", (AVATAR_BOYUT, AVATAR_BOYUT), (0, 0, 0, 0))
-        avatar_yuvarlak.paste(avatar, (0, 0), maske)
-        # Mor çerçeve
-        cerc = Image.new("RGBA", (AVATAR_BOYUT + 6, AVATAR_BOYUT + 6), (0, 0, 0, 0))
-        cerc_draw = ImageDraw.Draw(cerc)
-        cerc_draw.ellipse((0, 0, AVATAR_BOYUT + 5, AVATAR_BOYUT + 5), fill=(147, 51, 234, 255))
-        kart.paste(cerc, (av_x - 3, av_y - 3), cerc)
-        kart.paste(avatar_yuvarlak, (av_x, av_y), avatar_yuvarlak)
+    av_img = await _fetch(avatar_url, (AV_SIZE, AV_SIZE))
+    if av_img:
+        circle = Image.new("RGBA", (AV_SIZE, AV_SIZE), (0, 0, 0, 0))
+        circle.paste(av_img.convert("RGBA"), (0, 0), _circle_mask(AV_SIZE))
+        kart.paste(circle, (av_x, av_y), circle)
     else:
-        draw.ellipse([av_x, av_y, av_x + AVATAR_BOYUT, av_y + AVATAR_BOYUT],
-                     fill=(80, 80, 100, 200))
+        draw.ellipse([av_x, av_y, av_x + AV_SIZE, av_y + AV_SIZE], fill=(60, 60, 80, 200))
 
-    # ── Kullanıcı adı ─────────────────────────────────────
-    font_buyuk  = _font_yukle(22, kalin=True)
-    font_normal = _font_yukle(16, kalin=False)
-    font_kucuk  = _font_yukle(13, kalin=False)
-    font_sayi   = _font_yukle(20, kalin=True)
-    font_etiket = _font_yukle(11, kalin=False)
+    # ── Metin alani ───────────────────────────────────────────
+    fn_name  = _font(24, bold=True)
+    fn_sub   = _font(12, bold=False)
+    fn_label = _font(10, bold=False)
+    fn_val   = _font(19, bold=True)
+    fn_xp    = _font(11, bold=False)
 
-    isim_x = av_x
-    isim_y = av_y + AVATAR_BOYUT + 10
-    draw.text((isim_x, isim_y), kullanici_adi[:20], font=font_buyuk, fill=(255, 255, 255, 255))
+    WHITE  = (255, 255, 255, 255)
+    MUTED  = (180, 180, 200, 200)
+    ACCENT = (*acc, 230)
 
-    # Aktif rozet
+    tx = TEXT_X
+    ty = 22
+
+    # Kullanici adi
+    isim = kullanici_adi[:22]
+    draw.text((tx, ty), isim, font=fn_name, fill=WHITE)
+    ty += 32
+
+    # Bio (kart icinde, accent rengiyle)
+    if bio:
+        bio_display = bio[:52]
+        draw.text((tx, ty), bio_display, font=fn_sub, fill=MUTED)
+        ty += 20
+
+    # Aktif rozet (pill seklinde)
     if aktif_rozet:
-        rozet_y = isim_y + 28
-        draw.text((isim_x, rozet_y), f"🏅 {aktif_rozet[:28]}", font=font_kucuk, fill=(200, 160, 255, 220))
-        stat_y = rozet_y + 20
-    else:
-        stat_y = isim_y + 30
+        rozet_txt = aktif_rozet[:32]
+        bbox = draw.textbbox((0, 0), rozet_txt, font=fn_sub)
+        pill_w = bbox[2] - bbox[0] + 20
+        pill_h = 20
+        # Pill arkaplan
+        pill_img = Image.new("RGBA", (pill_w, pill_h), (0, 0, 0, 0))
+        ImageDraw.Draw(pill_img).rounded_rectangle(
+            [0, 0, pill_w - 1, pill_h - 1], radius=pill_h // 2,
+            fill=(*acc, 60), outline=(*acc, 160), width=1
+        )
+        kart.paste(pill_img, (tx, ty), pill_img)
+        draw.text((tx + 10, ty + 3), rozet_txt, font=fn_sub, fill=ACCENT)
+        ty += 26
 
-    # ── Sol istatistikler ─────────────────────────────────
-    col2_x = isim_x + 110
-    stat_y = max(stat_y, 155)
+    # ── Yatay ayirac ──────────────────────────────────────────
+    sep_y = 148
+    draw.rectangle([(LEFT_BAR, sep_y), (KART_W - PAD, sep_y + 1)], fill=(255, 255, 255, 35))
 
-    # Satır 1 (2 kolon)
-    draw.text((isim_x,  stat_y),      "LVL",     font=font_etiket, fill=(160, 160, 180, 200))
-    draw.text((isim_x,  stat_y + 14), str(level), font=font_sayi,  fill=(147, 51, 234, 255))
-    draw.text((col2_x,  stat_y),      "COINS",   font=font_etiket, fill=(160, 160, 180, 200))
-    draw.text((col2_x,  stat_y + 14), f"{bakiye:,}", font=font_sayi, fill=(255, 200, 50, 255))
+    # ── Istatistik satirlari ───────────────────────────────────
+    stat_y = sep_y + 14
+    stats = [
+        ("COINS",  f"{bakiye:,}"),
+        ("SIRALAMA", f"#{siralama:,}"),
+        ("LEVEL",  str(level)),
+    ]
+    col_w = 140
+    for i, (lbl, val) in enumerate(stats):
+        sx = tx + i * col_w
+        draw.text((sx, stat_y),      lbl, font=fn_label, fill=MUTED)
+        draw.text((sx, stat_y + 14), val, font=fn_val,   fill=WHITE)
 
-    # Satır 2
-    stat_y += 44
-    draw.text((isim_x,  stat_y),      "RANK",    font=font_etiket, fill=(160, 160, 180, 200))
-    draw.text((isim_x,  stat_y + 14), f"#{siralama:,}", font=font_sayi, fill=(255, 255, 255, 255))
+    # Dikey ayirac satirlarda
+    for i in range(1, len(stats)):
+        dx = tx + i * col_w - 12
+        draw.rectangle([(dx, stat_y), (dx + 1, stat_y + 36)], fill=(255, 255, 255, 25))
 
-    # ── Sağ panel: EXP bar + bilgiler ─────────────────────
-    sag_x = PANEL_W + 60
-    sag_y = 30
+    # ── EXP bar ───────────────────────────────────────────────
+    bar_y = KART_H - 50
+    bar_x = tx
+    bar_w = KART_W - tx - PAD
+    bar_h = 14
 
-    # "TOTAL XP" etiketi
-    draw.text((sag_x, sag_y), "TOTAL XP", font=font_etiket, fill=(200, 200, 220, 220))
-    draw.text((sag_x, sag_y + 15), f"{exp:,}", font=font_buyuk, fill=(255, 255, 255, 255))
+    draw.text((bar_x, bar_y - 16), "EXP", font=fn_label, fill=MUTED)
+    oran = int(min(exp / max(gereken_exp, 1), 1.0) * 100)
+    xp_txt = f"{exp:,} / {gereken_exp:,}  •  %{oran}"
+    bbox = draw.textbbox((0, 0), xp_txt, font=fn_xp)
+    draw.text((bar_x + bar_w - (bbox[2] - bbox[0]), bar_y - 16),
+              xp_txt, font=fn_xp, fill=MUTED)
 
-    # EXP progress bar
-    bar_y = sag_y + 55
-    bar_w = KART_W - sag_x - 30
-    _exp_bar_ciz(draw, sag_x, bar_y, bar_w, 22, exp, gereken_exp)
+    _draw_xp_bar(draw, bar_x, bar_y, bar_w, bar_h, exp, gereken_exp, acc)
 
-    # Bar altı bilgi
-    oran_str = f"{exp:,} / {gereken_exp:,} XP"
-    draw.text((sag_x, bar_y + 28), oran_str, font=font_kucuk, fill=(200, 180, 255, 200))
+    # ── Alt accent seridi ──────────────────────────────────────
+    draw.rectangle([(0, KART_H - 5), (KART_W, KART_H)], fill=(*acc, 220))
 
-    # Yüzde
-    yuzde = int((exp / gereken_exp) * 100) if gereken_exp else 0
-    draw.text((sag_x + bar_w - 40, bar_y + 28), f"%{yuzde}", font=font_kucuk, fill=(200, 180, 255, 200))
-
-    # ── Alt süsleme çizgisi ───────────────────────────────
-    draw.rectangle([(0, KART_H - 4), (KART_W, KART_H)], fill=(147, 51, 234, 200))
-
-    # ── Çıktı ─────────────────────────────────────────────
+    # ── Cikti ─────────────────────────────────────────────────
     buf = io.BytesIO()
     kart.convert("RGB").save(buf, format="PNG", optimize=True)
     buf.seek(0)

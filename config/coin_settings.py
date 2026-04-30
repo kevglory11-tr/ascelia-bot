@@ -61,6 +61,18 @@ OZEL_ROZETLER = [
     {"id": "referans_10", "isim": "Davetci",             "emoji": "\U0001f4e8"},
 ]
 
+# ── Rozet Mağazası (coin ile satın alınabilen) ─────────────
+ROZET_MAGAZA = [
+    {"id": "rm_alev",    "isim": "Alev",    "emoji": "\U0001f525", "fiyat": 200},
+    {"id": "rm_yildiz",  "isim": "Yildiz",  "emoji": "\U00002b50", "fiyat": 300},
+    {"id": "rm_robot",   "isim": "Robot",   "emoji": "\U0001f916", "fiyat": 400},
+    {"id": "rm_elmas",   "isim": "Elmas",   "emoji": "\U0001f48e", "fiyat": 500},
+    {"id": "rm_gizem",   "isim": "Gizem",   "emoji": "\U0001f52e", "fiyat": 600},
+    {"id": "rm_kral",    "isim": "Kral",    "emoji": "\U0001f451", "fiyat": 800},
+    {"id": "rm_galaksi", "isim": "Galaksi", "emoji": "\U0001f30c", "fiyat": 1000},
+    {"id": "rm_ejder",   "isim": "Ejder",   "emoji": "\U0001f409", "fiyat": 1200},
+]
+
 # ── Profil Arka Plan Sistemi ───────────────────────────────
 PROFIL_ARKA_PLANLAR = [
     {"id": "varsayilan", "isim": "Varsayilan",  "renk": "2b2d31", "fiyat": 0,    "emoji": "⬛"},
