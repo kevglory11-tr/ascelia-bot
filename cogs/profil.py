@@ -15,6 +15,10 @@ from utils.logger import setup_logger
 from utils.profil_karti import profil_karti_olustur
 from config.coin_settings import OZEL_ROZETLER, PROFIL_ARKA_PLANLAR
 
+M2B  = "<:m2bcoin:1480481551337783437>"
+OK   = "<a:olumlutick:1478524954688356494>"
+FAIL = "❌"
+
 log = setup_logger("profil")
 
 EXP_MESAJ_MIN   = 5
@@ -193,7 +197,39 @@ class ProfilCog(commands.Cog):
         await database.update_profil(interaction.user.id, profil_bio=bio)
         await interaction.response.send_message(f"✅ Bio güncellendi: *{bio}*", ephemeral=True)
 
-    # ── /rozet-sec ────────────────────────────────────────────────────────────
+    # ── /arka-plan ─────────────────────────────────────────────────────────────
+
+    @app_commands.command(name="arka-plan", description="Profil kartı arka planını değiştir.")
+    async def arka_plan(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        uid   = interaction.user.id
+        kayit = await database.ensure_user(uid, interaction.user.display_name)
+        bakiye = kayit["bakiye"]
+        mevcut = kayit["profil_arka_plan"] or "varsayilan"
+
+        embed = discord.Embed(
+            title="🖼️ Profil Arka Planı",
+            description=(
+                f"Arka plan profil kartına yansır.\n"
+                f"{M2B} Bakiyen: **{bakiye:,} Coin**\n"
+                f"Mevcut: **{next((a['isim'] for a in PROFIL_ARKA_PLANLAR if a['id'] == mevcut), mevcut)}**"
+            ),
+            color=0x7B2FBE,
+        )
+        for ap in PROFIL_ARKA_PLANLAR:
+            aktif  = " ✅" if ap["id"] == mevcut else ""
+            fiyat  = "Ücretsiz" if ap["fiyat"] == 0 else f"{ap['fiyat']:,} {M2B}"
+            kilit  = "" if bakiye >= ap["fiyat"] else " 🔒"
+            embed.add_field(
+                name=f"{ap['emoji']} {ap['isim']}{aktif}",
+                value=f"{fiyat}{kilit}",
+                inline=True,
+            )
+
+        view = ArkaPlanView(uid, bakiye, mevcut)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    # ── /rozet-sec ─────────────────────────────────────────────────────────────
 
     @app_commands.command(name="rozet-sec", description="Profilinde gösterilecek aktif rozeti seç.")
     async def rozet_sec(self, interaction: discord.Interaction):
@@ -217,6 +253,67 @@ class ProfilCog(commands.Cog):
         except Exception as e:
             log.error(f"rozet-sec hatası: {e}", exc_info=True)
             await interaction.followup.send("Bir hata oluştu.", ephemeral=True)
+
+
+class ArkaPlanSelect(discord.ui.Select):
+    def __init__(self, discord_id: int, bakiye: int, mevcut: str):
+        self.discord_id = discord_id
+        options = []
+        for ap in PROFIL_ARKA_PLANLAR:
+            aktif = ap["id"] == mevcut
+            fiyat_txt = "Ücretsiz" if ap["fiyat"] == 0 else f"{ap['fiyat']:,} Coin"
+            if bakiye < ap["fiyat"] and not aktif:
+                fiyat_txt += " — Yetersiz bakiye"
+            label = f"{'✅ ' if aktif else ''}{ap['isim']}"
+            options.append(discord.SelectOption(
+                label=label[:100],
+                description=fiyat_txt,
+                value=ap["id"],
+                emoji=ap["emoji"],
+                default=aktif,
+            ))
+        super().__init__(placeholder="Arka plan seç...", options=options[:25])
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.discord_id:
+            await interaction.response.send_message("Bu menü sana ait değil!", ephemeral=True)
+            return
+
+        secim = self.values[0]
+        ap    = next(a for a in PROFIL_ARKA_PLANLAR if a["id"] == secim)
+        await interaction.response.defer(ephemeral=True)
+
+        if ap["fiyat"] > 0:
+            ok = await database.remove_coins(
+                self.discord_id, ap["fiyat"], aciklama=f"Arka plan: {ap['isim']}"
+            )
+            if not ok:
+                kayit = await database.get_user(self.discord_id)
+                bakiye = kayit["bakiye"] if kayit else 0
+                await interaction.followup.send(
+                    f"{FAIL} Yetersiz coin!\nGerekli: **{ap['fiyat']:,}** — Bakiyen: **{bakiye:,}**",
+                    ephemeral=True,
+                )
+                return
+
+        await database.update_profil(self.discord_id, profil_arka_plan=secim)
+
+        embed = discord.Embed(
+            title=f"{OK} Arka Plan Güncellendi!",
+            description=(
+                f"{ap['emoji']} **{ap['isim']}** seçildi."
+                + (f"\n{M2B} **{ap['fiyat']:,} Coin** harcandı." if ap["fiyat"] > 0 else "")
+                + "\n\n`/profil` ile kontrol edebilirsin."
+            ),
+            color=int(ap["renk"], 16),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+class ArkaPlanView(discord.ui.View):
+    def __init__(self, discord_id: int, bakiye: int, mevcut: str):
+        super().__init__(timeout=120)
+        self.add_item(ArkaPlanSelect(discord_id, bakiye, mevcut))
 
 
 class RozetSecView(discord.ui.View):
