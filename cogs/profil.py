@@ -13,7 +13,10 @@ import random
 import database
 from utils.logger import setup_logger
 from utils.profil_karti import profil_karti_olustur
-from config.coin_settings import OZEL_ROZETLER, PROFIL_ARKA_PLANLAR
+from config.coin_settings import OZEL_ROZETLER, PROFIL_ARKA_PLANLAR, ROZET_MAGAZA
+
+def _tum_rozetler() -> list:
+    return OZEL_ROZETLER + ROZET_MAGAZA
 
 M2B  = "<:m2bcoin:1480481551337783437>"
 OK   = "<a:olumlutick:1478524954688356494>"
@@ -114,7 +117,7 @@ class ProfilCog(commands.Cog):
 
             aktif_rozet_isim = None
             if kayit["aktif_rozet"]:
-                r = next((r for r in OZEL_ROZETLER if r["id"] == kayit["aktif_rozet"]), None)
+                r = next((r for r in _tum_rozetler() if r["id"] == kayit["aktif_rozet"]), None)
                 if r:
                     aktif_rozet_isim = r["isim"]
 
@@ -134,6 +137,7 @@ class ProfilCog(commands.Cog):
                     aktif_rozet    = aktif_rozet_isim,
                     arka_plan_url  = arka_plan_url,
                     renk_hex       = renk,
+                    bio            = kayit["profil_bio"],
                 )
                 dosya = discord.File(buf, filename="profil.png")
             except Exception as e:
@@ -149,7 +153,7 @@ class ProfilCog(commands.Cog):
                 embed.set_image(url="attachment://profil.png")
 
             if rozet_listesi:
-                tum = [r["isim"] for r in OZEL_ROZETLER if r["id"] in rozet_listesi]
+                tum = [r["isim"] for r in _tum_rozetler() if r["id"] in rozet_listesi]
                 satirlar = []
                 toplam   = 0
                 for isim in tum:
@@ -160,7 +164,7 @@ class ProfilCog(commands.Cog):
                     satirlar.append(satir)
                     toplam += len(satir) + 1
                 embed.add_field(
-                    name=f"🏅 Rozetler ({len(tum)}/{len(OZEL_ROZETLER)})",
+                    name=f"🏅 Rozetler ({len(tum)}/{len(_tum_rozetler())})",
                     value="\n".join(satirlar),
                     inline=False,
                 )
@@ -172,9 +176,6 @@ class ProfilCog(commands.Cog):
                     value="\n".join(son3),
                     inline=False,
                 )
-
-            if kayit["profil_bio"]:
-                embed.set_footer(text=f"📝 {kayit['profil_bio']}")
 
             if dosya:
                 await interaction.followup.send(file=dosya, embed=embed)
@@ -238,12 +239,12 @@ class ProfilCog(commands.Cog):
             sahip = await database.get_rozet_listesi(interaction.user.id)
             if not sahip:
                 await interaction.followup.send(
-                    "Henüz rozet sahibi değilsin! `/market` → Özel Rozetler.", ephemeral=True
+                    "Henüz rozet sahibi değilsin! `/market` → Rozet Mağazası'ndan satın alabilirsin.", ephemeral=True
                 )
                 return
             options = [
                 discord.SelectOption(label=r["isim"], value=r["id"])
-                for r in OZEL_ROZETLER if r["id"] in sahip
+                for r in _tum_rozetler() if r["id"] in sahip
             ][:25]
             view = RozetSecView(interaction.user.id, options)
             await interaction.followup.send(
