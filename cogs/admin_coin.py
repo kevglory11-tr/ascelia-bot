@@ -340,5 +340,45 @@ class TumCoinSilOnayView(discord.ui.View):
         await interaction.response.edit_message(content="❌ İptal edildi.", view=None)
 
 
+    @app_commands.command(name="rozet-ver", description="Kullaniciya ozel rozet ver (Admin).")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(uye="Rozet verilecek kullanici", rozet_id="Rozet ID (orn: vanguard, seri_30)")
+    async def rozet_ver(self, interaction: discord.Interaction, uye: discord.Member, rozet_id: str):
+        await interaction.response.defer(ephemeral=True)
+        if not _admin_kontrol(interaction):
+            await interaction.followup.send(f"{FAIL} Yetki yok!", ephemeral=True)
+            return
+
+        from config.coin_settings import OZEL_ROZETLER
+        rozet = next((r for r in OZEL_ROZETLER if r["id"] == rozet_id), None)
+        if not rozet:
+            gecerli = ", ".join(r["id"] for r in OZEL_ROZETLER)
+            await interaction.followup.send(
+                f"{FAIL} Gecersiz rozet ID!\nGecerli: `{gecerli}`",
+                ephemeral=True,
+            )
+            return
+
+        await database.ensure_user(uye.id, uye.display_name)
+        await database.add_rozet(uye.id, rozet_id)
+
+        embed = discord.Embed(
+            title=f"{OK} Rozet Verildi!",
+            description=f"{uye.mention} → **{rozet['emoji']} {rozet['isim']}**",
+            color=0x2ECC71,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        log.info(f"Rozet verildi: {uye} → {rozet_id}")
+
+        try:
+            await uye.send(
+                f"🏅 **Yeni rozet kazandin!**\n"
+                f"**{rozet['emoji']} {rozet['isim']}**\n"
+                f"`/rozet-sec` ile profilinde aktif edebilirsin."
+            )
+        except Exception:
+            pass
+
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(AdminCoinCog(bot))
