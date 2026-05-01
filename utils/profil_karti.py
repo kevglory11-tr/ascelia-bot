@@ -1,6 +1,6 @@
-# utils/profil_karti.py — Profil karti v5
-# Supersampling: 700x940 render → LANCZOS → 350x470 HD cikti
-# Teknik: yuksek cozunurluklu render, anti-aliased font, sade XP bar
+# utils/profil_karti.py — Profil karti v6
+# Yatay (horizontal) layout: 800x250 cikti
+# Supersampling: 1600x500 render → LANCZOS → 800x250 HD
 
 import io
 import os
@@ -10,13 +10,16 @@ import aiohttp
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 # ── Boyutlar ──────────────────────────────────────────────────────────────────
-SCALE  = 2          # supersampling carpani
-OUT_W  = 350        # Discord'da gorunecek genislik
-OUT_H  = 470        # Discord'da gorunecek yukseklik
-KART_W = OUT_W * SCALE   # 700 — render boyutu
-KART_H = OUT_H * SCALE   # 940 — render boyutu
-PAD    = 36         # i kenar bosugu (render px)
-AV_SIZE = 192       # avatar capı (render px)
+SCALE    = 2
+OUT_W    = 800
+OUT_H    = 250
+KART_W   = OUT_W * SCALE   # 1600  (render genisligi)
+KART_H   = OUT_H * SCALE   # 500   (render yuksekligi)
+
+PAD      = 40              # kenar boslugu (render px)
+LEFT_BAR = 8               # sol accent cubugu (render px)
+AV_SIZE  = 224             # avatar capu (render px) → display 112px
+TEXT_X   = LEFT_BAR + PAD + AV_SIZE + 44   # metin baslangic x = 316
 
 
 # ── Font ──────────────────────────────────────────────────────────────────────
@@ -77,7 +80,7 @@ def _accent(h: str) -> tuple[int, int, int]:
 
 
 def _shape_col(acc: tuple, dr: int, dg: int, db: int) -> tuple:
-    # Kumulatif beyazlasmayi onlemek icin max 148/kanal
+    # Her kanal max 148 → kumulatif overlayde beyazlasma olmaz
     return (
         min(acc[0] // 4 + dr, 148),
         min(acc[1] // 4 + dg, 148),
@@ -85,10 +88,9 @@ def _shape_col(acc: tuple, dr: int, dg: int, db: int) -> tuple:
     )
 
 
-# ── Alpha-safe katman ─────────────────────────────────────────────────────────
+# ── Layer-safe composite ───────────────────────────────────────────────────────
 
 def _composite(base: Image.Image, draw_fn) -> tuple[Image.Image, ImageDraw.ImageDraw]:
-    """Yeni RGBA layer yarat, ciz, base ile composite et."""
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     draw_fn(ImageDraw.Draw(layer))
     out = Image.alpha_composite(base, layer)
@@ -114,15 +116,15 @@ def _build_bg(renk_hex: str) -> Image.Image:
     base = (max(r // 10, 6), max(g // 10, 6), max(b // 8 + 3, 10))
     img  = Image.new("RGBA", (KART_W, KART_H), (*base, 255))
 
-    # Sag tarafa yogunlastirilmis geometrik katmanlar
+    # Sag tarafa yogunlastirilmis rhombus katmanlar (yatay kart icin ayarli)
     shapes = [
-        # cx_r  cy_r   w     h    ang  alpha  dr   dg   db
-        (0.80, 0.24, 640,  980,  45,   40,   60,  40, 108),
-        (0.62, 0.12, 460,  780,  45,   28,   50,  32,  86),
-        (0.96, 0.65, 560,  870,  45,   26,   55,  40,  96),
-        (0.47, 0.08, 330,  620,  45,   20,   38,  26,  64),
-        (0.88, 0.92, 440,  710,  45,   16,   56,  44, 100),
-        (0.28, 0.62, 250,  500,  45,   12,   24,  18,  48),
+        # cx_r   cy_r   w     h    ang   alpha  dr   dg   db
+        (0.82,  0.45,  700,  900,  45,    42,   60,  40, 108),
+        (0.68,  0.20,  500,  700,  45,    28,   50,  32,  86),
+        (0.95,  0.70,  600,  800,  45,    26,   55,  40,  96),
+        (0.55,  0.10,  400,  600,  45,    18,   38,  26,  64),
+        (0.90,  0.90,  480,  680,  45,    16,   56,  44, 100),
+        (0.42,  0.80,  300,  500,  45,    12,   24,  18,  48),
     ]
     for cx_r, cy_r, sw, sh, ang, alpha, dr, dg, db in shapes:
         sc    = _shape_col(acc, dr, dg, db)
@@ -131,12 +133,12 @@ def _build_bg(renk_hex: str) -> Image.Image:
         ImageDraw.Draw(layer).polygon(pts, fill=(*sc, alpha))
         img = Image.alpha_composite(img, layer)
 
-    # Sol vignette — stat alti daha koyu, okunaklilik iyilesir
-    vig_w = PAD + 300
+    # Sol vignette — avatar + metin alani okunaklilik icin kararti
+    vig_w = TEXT_X + 200
     vig   = Image.new("RGBA", (KART_W, KART_H), (0, 0, 0, 0))
     vd    = ImageDraw.Draw(vig)
     for xi in range(vig_w):
-        a = int(70 * (1.0 - xi / vig_w))
+        a = int(78 * (1.0 - xi / vig_w))
         vd.line([(xi, 0), (xi, KART_H)], fill=(0, 0, 0, a))
     return Image.alpha_composite(img, vig)
 
@@ -164,18 +166,16 @@ def _circle_mask(size: int) -> Image.Image:
 
 def _xp_bar(kart: Image.Image, x: int, y: int, w: int, h: int,
              exp: int, gereken: int, acc: tuple) -> Image.Image:
-    """Sade XP bar: arka plan + solid accent dolgu."""
+    """Sade XP bar: ince dark track + solid accent dolgu."""
     oran = min(exp / max(gereken, 1), 1.0)
     dolu = int(w * oran)
     r    = h // 2
 
-    # Arka plan: ince beyaz saydamlik
     def bg(d):
         d.rounded_rectangle([x, y, x + w, y + h], radius=r,
                              fill=(255, 255, 255, 18))
     kart, _ = _composite(kart, bg)
 
-    # Dolgu: solid accent, ekstra efekt yok
     if dolu > r:
         def fill(d):
             d.rounded_rectangle([x, y, x + dolu, y + h], radius=r,
@@ -216,25 +216,28 @@ async def profil_karti_olustur(
     else:
         kart = _build_bg(renk_hex)
 
-    # ── Fontlar (render boyutu = 2× display) ──────────────────
-    fn_name  = _font(44, bold=True)    # display ≈ 22 px
-    fn_label = _font(22, bold=False)   # display ≈ 11 px  (stat baslık)
-    fn_stat  = _font(56, bold=True)    # display ≈ 28 px  (stat deger)
-    fn_sub   = _font(24, bold=False)   # display ≈ 12 px  (rozet / bio)
+    # ── Sol accent cubugu ──────────────────────────────────────
+    def left_bar(d):
+        d.rectangle([(0, 0), (LEFT_BAR, KART_H)], fill=(*acc, 255))
+    kart, draw = _composite(kart, left_bar)
+
+    # ── Fontlar (render boyutu, display = yarisina indirgenir) ─
+    fn_name  = _font(52, bold=True)    # display ≈ 26 px
+    fn_sub   = _font(26, bold=False)   # display ≈ 13 px  (bio / rozet)
+    fn_label = _font(24, bold=False)   # display ≈ 12 px  (stat baslik)
+    fn_val   = _font(48, bold=True)    # display ≈ 24 px  (stat deger)
     fn_xp    = _font(24, bold=False)   # display ≈ 12 px  (xp sayilar)
-    fn_xpl   = _font(20, bold=False)   # display ≈ 10 px  (xp alt etiket)
+    fn_xpl   = _font(20, bold=False)   # display ≈ 10 px  (xp alt metin)
 
     WHITE  = (255, 255, 255, 255)
-    MUTED  = (158, 158, 192, 215)
+    MUTED  = (160, 160, 195, 215)
     ACCENT = (*acc, 238)
 
-    draw = ImageDraw.Draw(kart)
-
     # ── Avatar ────────────────────────────────────────────────
-    av_x  = PAD
-    av_y  = PAD
-    av_cx = av_x + AV_SIZE // 2   # 132
-    av_cy = av_y + AV_SIZE // 2   # 132
+    av_x  = LEFT_BAR + PAD
+    av_y  = (KART_H - AV_SIZE) // 2   # dikey ortalama: 138
+    av_cx = av_x + AV_SIZE // 2        # 160
+    av_cy = av_y + AV_SIZE // 2        # 250
 
     # Golge
     def shadow(d):
@@ -243,10 +246,10 @@ async def profil_karti_olustur(
                   fill=(0, 0, 0, 90))
     kart, draw = _composite(kart, shadow)
 
-    # Accent halka (4px render = 2px display)
+    # Accent halka
     ring_r = AV_SIZE // 2 + 5
     draw.ellipse([av_cx - ring_r, av_cy - ring_r, av_cx + ring_r, av_cy + ring_r],
-                 outline=(*acc, 255), width=4)
+                 outline=(*acc, 255), width=5)
 
     av_img = await _fetch(avatar_url, (AV_SIZE, AV_SIZE))
     if av_img:
@@ -255,82 +258,86 @@ async def profil_karti_olustur(
         kart.paste(circ, (av_x, av_y), circ)
         draw = ImageDraw.Draw(kart)
     else:
-        draw.ellipse([av_x, av_y, av_x + AV_SIZE, av_y + AV_SIZE], fill=(55, 55, 78, 255))
+        draw.ellipse([av_x, av_y, av_x + AV_SIZE, av_y + AV_SIZE],
+                     fill=(55, 55, 78, 255))
 
-    # Rozet badge (avatar alt-sag kosesi)
-    bx, by, br = av_x + AV_SIZE - 4, av_y + AV_SIZE - 4, 16
-    def badge(d):
-        d.ellipse([bx - br, by - br, bx + br, by + br], fill=(*acc, 225))
-    kart, draw = _composite(kart, badge)
-    draw.ellipse([bx - br, by - br, bx + br, by + br],
-                 outline=(255, 255, 255, 150), width=2)
+    # ── Kullanici adi ─────────────────────────────────────────
+    ty = 46
+    draw.text((TEXT_X, ty), kullanici_adi[:22], font=fn_name, fill=WHITE)
+    ty += 64
 
-    # ── Kullanici adi / bio / rozet pill ──────────────────────
-    tx    = av_x + AV_SIZE + 22
-    ty    = av_y + 16
-    draw.text((tx, ty), kullanici_adi[:17], font=fn_name, fill=WHITE)
-
-    pill_y = ty + 54
+    # Bio
     if bio:
-        draw.text((tx, pill_y - 20), bio[:30], font=fn_sub, fill=MUTED)
-        pill_y += 28
+        draw.text((TEXT_X, ty), bio[:46], font=fn_sub, fill=MUTED)
+        ty += 36
 
+    # Aktif rozet pill
     if aktif_rozet:
-        rtxt = aktif_rozet[:20]
+        rtxt = aktif_rozet[:26]
         bbox = draw.textbbox((0, 0), rtxt, font=fn_sub)
-        pw   = bbox[2] - bbox[0] + 22
-        ph   = 28
+        pw   = bbox[2] - bbox[0] + 24
+        ph   = 30
         pill = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
         ImageDraw.Draw(pill).rounded_rectangle(
             [0, 0, pw - 1, ph - 1], radius=ph // 2,
             fill=(*acc, 42), outline=(*acc, 148), width=1,
         )
-        kart.paste(pill, (tx, pill_y), pill)
+        kart.paste(pill, (TEXT_X, ty), pill)
         draw = ImageDraw.Draw(kart)
-        draw.text((tx + 11, pill_y + 5), rtxt, font=fn_sub, fill=ACCENT)
+        draw.text((TEXT_X + 12, ty + 5), rtxt, font=fn_sub, fill=ACCENT)
+        ty += 40
 
-    # ── Ayirac 1 ──────────────────────────────────────────────
-    div1_y = av_y + AV_SIZE + 52
+    # ── Yatay ayirac 1 ────────────────────────────────────────
+    sep1_y = 248
     def sep1(d):
-        d.rectangle([(PAD, div1_y), (KART_W - PAD, div1_y + 2)],
+        d.rectangle([(TEXT_X, sep1_y), (KART_W - PAD, sep1_y + 2)],
                     fill=(255, 255, 255, 22))
     kart, draw = _composite(kart, sep1)
 
-    # ── Statlar — sol sütun, tek kolon ────────────────────────
-    stats    = [("LVL", str(level)), ("COINS", f"{bakiye:,}"), ("SIRALAMA", f"#{siralama:,}")]
-    sy       = div1_y + 34
-    stat_gap = 134
+    # ── Stat satiri ───────────────────────────────────────────
+    stats   = [("LEVEL", str(level)), ("COINS", f"{bakiye:,}"), ("SIRALAMA", f"#{siralama:,}")]
+    col_w   = 280
+    stat_y  = sep1_y + 20
 
-    for lbl, val in stats:
-        draw.text((PAD, sy),      lbl, font=fn_label, fill=MUTED)
-        draw.text((PAD, sy + 26), val, font=fn_stat,  fill=WHITE)
-        sy += stat_gap
+    for i, (lbl, val) in enumerate(stats):
+        sx = TEXT_X + i * col_w
+        draw.text((sx, stat_y),      lbl, font=fn_label, fill=MUTED)
+        draw.text((sx, stat_y + 28), val, font=fn_val,   fill=WHITE)
 
-    # ── Ayirac 2 ──────────────────────────────────────────────
-    div2_y = div1_y + 34 + stat_gap * len(stats) + 14
+    # Dikey ayiraclar
+    def vert_divs(d):
+        for i in range(1, len(stats)):
+            dx = TEXT_X + i * col_w - 16
+            d.rectangle([(dx, stat_y), (dx + 2, stat_y + 80)],
+                        fill=(255, 255, 255, 20))
+    kart, draw = _composite(kart, vert_divs)
+
+    # ── Yatay ayirac 2 ────────────────────────────────────────
+    sep2_y = stat_y + 90
     def sep2(d):
-        d.rectangle([(PAD, div2_y), (KART_W - PAD, div2_y + 2)],
+        d.rectangle([(TEXT_X, sep2_y), (KART_W - PAD, sep2_y + 2)],
                     fill=(255, 255, 255, 22))
     kart, draw = _composite(kart, sep2)
 
-    # ── EXP bolumu — tam genislik, sade ───────────────────────
-    xp_y  = div2_y + 32
-    bar_x = PAD
-    bar_w = KART_W - PAD * 2   # 628 px
+    # ── EXP bolumu ────────────────────────────────────────────
+    bar_x = TEXT_X
+    bar_w = KART_W - TEXT_X - PAD   # 1600 - 316 - 40 = 1244
     bar_h = 26
+    xp_y  = sep2_y + 22
 
-    pct    = int(min(exp / max(gereken_exp, 1), 1.0) * 100)
-    xp_str = f"{exp:,} / {gereken_exp:,}"
+    pct     = int(min(exp / max(gereken_exp, 1), 1.0) * 100)
+    xp_str  = f"{exp:,} / {gereken_exp:,}"
     pct_str = f"%{pct}"
 
     draw.text((bar_x, xp_y), xp_str, font=fn_xp, fill=MUTED)
     bbox = draw.textbbox((0, 0), pct_str, font=fn_xp)
-    draw.text((bar_x + bar_w - (bbox[2] - bbox[0]), xp_y), pct_str, font=fn_xp, fill=WHITE)
+    draw.text((bar_x + bar_w - (bbox[2] - bbox[0]), xp_y),
+              pct_str, font=fn_xp, fill=WHITE)
 
-    kart = _xp_bar(kart, bar_x, xp_y + 34, bar_w, bar_h, exp, gereken_exp, acc)
+    kart = _xp_bar(kart, bar_x, xp_y + 30, bar_w, bar_h, exp, gereken_exp, acc)
     draw = ImageDraw.Draw(kart)
 
-    draw.text((bar_x, xp_y + 34 + bar_h + 10),
+    draw.text((bar_x, xp_y + 30 + bar_h + 10),
               f"TOTAL XP: {exp:,}", font=fn_xpl, fill=MUTED)
 
     # ── Alt accent seridi ─────────────────────────────────────
@@ -338,7 +345,7 @@ async def profil_karti_olustur(
         d.rectangle([(0, KART_H - 8), (KART_W, KART_H)], fill=(*acc, 228))
     kart, _ = _composite(kart, stripe)
 
-    # ── Supersampling: render 700x940 → LANCZOS → 350x470 ────
+    # ── Supersampling: 1600x500 → LANCZOS → 800x250 ───────────
     dark  = Image.new("RGBA", (KART_W, KART_H), (8, 8, 14, 255))
     final = Image.alpha_composite(dark, kart)
     final = final.resize((OUT_W, OUT_H), Image.LANCZOS)
