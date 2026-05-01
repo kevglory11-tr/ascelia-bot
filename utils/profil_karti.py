@@ -218,30 +218,30 @@ def draw_text_elements(
     WHITE = (255, 255, 255, 255)
     MUTED = (158, 158, 192, 215)
 
-    # Font sizes at 2x render (display size = half):
-    fn_name  = _font(72, bold=True)    # display ≈ 36 px — spec range: 60-80 px render ✓
-    fn_level = _font(44, bold=True)    # display ≈ 22 px — spec range: 40-50 px render ✓
-    fn_sub   = _font(30, bold=False)   # display ≈ 15 px
+    # Font sizes at 2x render (display size = half after LANCZOS):
+    fn_name  = _font(90, bold=True)    # display ≈ 45 px
+    fn_level = _font(56, bold=True)    # display ≈ 28 px
+    fn_sub   = _font(38, bold=False)   # display ≈ 19 px
 
     # ── Username ───────────────────────────────────────────────
-    draw.text((text_x, 78), username[:20], font=fn_name, fill=WHITE)
-    ty = 78 + 72 + 14   # 164
+    draw.text((text_x, 50), username[:20], font=fn_name, fill=WHITE)
+    ty = 50 + 90 + 10   # 150
 
     # ── Level ─────────────────────────────────────────────────
     draw.text((text_x, ty), f"Seviye {level}", font=fn_level, fill=(*accent, 255))
-    ty += 44 + 16   # 224
+    ty += 56 + 12   # 218
 
     # ── Bio (optional) ────────────────────────────────────────
     if bio:
         draw.text((text_x, ty), bio[:50], font=fn_sub, fill=MUTED)
-        ty += 30 + 10   # 264
+        ty += 38 + 8   # 264
 
     # ── Rozet pill (optional) ─────────────────────────────────
     if aktif_rozet:
         rtxt = aktif_rozet[:24]
         bbox = draw.textbbox((0, 0), rtxt, font=fn_sub)
-        pw   = bbox[2] - bbox[0] + 26
-        ph   = 34
+        pw   = bbox[2] - bbox[0] + 30
+        ph   = 44
         pill = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
         ImageDraw.Draw(pill).rounded_rectangle(
             [0, 0, pw - 1, ph - 1], radius=ph // 2,
@@ -249,8 +249,8 @@ def draw_text_elements(
         )
         canvas.paste(pill, (text_x, ty), pill)
         draw = ImageDraw.Draw(canvas)
-        draw.text((text_x + 13, ty + 7), rtxt, font=fn_sub, fill=(*accent, 232))
-        ty += ph + 10   # +44
+        draw.text((text_x + 15, ty + 8), rtxt, font=fn_sub, fill=(*accent, 232))
+        ty += ph + 8   # +52
 
     return canvas, draw, ty
 
@@ -315,28 +315,28 @@ async def profil_karti_olustur(
     # ── Step 5: Stats row (COINS + SIRALAMA) ──────────────────
     WHITE = (255, 255, 255, 255)
     MUTED = (158, 158, 192, 215)
-    fn_slbl = _font(26, bold=False)   # display ≈ 13 px
-    fn_sval = _font(38, bold=True)    # display ≈ 19 px
+    fn_slbl = _font(32, bold=False)   # display ≈ 16 px
+    fn_sval = _font(48, bold=True)    # display ≈ 24 px
 
     stats  = [("COINS", f"{bakiye:,}"), ("SIRALAMA", f"#{siralama:,}")]
     col_w  = 280
     for i, (lbl, val) in enumerate(stats):
         sx = TEXT_X + i * col_w
         draw.text((sx, stat_y),      lbl, font=fn_slbl, fill=MUTED)
-        draw.text((sx, stat_y + 30), val, font=fn_sval, fill=WHITE)
+        draw.text((sx, stat_y + 34), val, font=fn_sval, fill=WHITE)
 
     # Vertical dividers between stats
     def vdivs(d):
         for i in range(1, len(stats)):
             dx = TEXT_X + i * col_w - 18
-            d.rectangle([(dx, stat_y), (dx + 2, stat_y + 80)],
+            d.rectangle([(dx, stat_y), (dx + 2, stat_y + 90)],
                         fill=(255, 255, 255, 18))
     kart, draw = _layer(kart, vdivs)
 
     # ── Step 6: Horizontal separator before XP bar ────────────
-    bar_y = 390
+    bar_y = 415
     def hsep(d):
-        d.rectangle([(TEXT_X, bar_y - 20), (KART_W - PAD, bar_y - 18)],
+        d.rectangle([(TEXT_X, bar_y - 18), (KART_W - PAD, bar_y - 16)],
                     fill=(255, 255, 255, 18))
     kart, draw = _layer(kart, hsep)
 
@@ -348,15 +348,14 @@ async def profil_karti_olustur(
     kart = draw_xp_bar(kart, bar_x, bar_y, bar_w, bar_h, exp, gereken_exp, acc)
     draw = ImageDraw.Draw(kart)
 
-    # XP text — spec range 28-36 px render ✓
-    fn_xp = _font(30, bold=False)   # display ≈ 15 px
+    fn_xp = _font(36, bold=False)   # display ≈ 18 px
     pct       = int(min(exp / max(gereken_exp, 1), 1.0) * 100)
     xp_left   = f"{exp:,} / {gereken_exp:,} XP"
     xp_right  = f"%{pct}"
 
-    draw.text((bar_x, bar_y + bar_h + 12), xp_left, font=fn_xp, fill=MUTED)
+    draw.text((bar_x, bar_y + bar_h + 6), xp_left, font=fn_xp, fill=MUTED)
     bbox = draw.textbbox((0, 0), xp_right, font=fn_xp)
-    draw.text((bar_x + bar_w - (bbox[2] - bbox[0]), bar_y + bar_h + 12),
+    draw.text((bar_x + bar_w - (bbox[2] - bbox[0]), bar_y + bar_h + 6),
               xp_right, font=fn_xp, fill=WHITE)
 
     # ── Step 8: Bottom accent stripe ──────────────────────────
