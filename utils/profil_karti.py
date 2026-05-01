@@ -1,261 +1,273 @@
-# utils/profil_karti.py — Discord Level Card Generator
-# Supersampling: 1600x500 internal render → LANCZOS → 800x250 final output
-#
-# Helper functions: load_avatar | process_background | draw_xp_bar | draw_text_elements
+"""
+utils/profil_karti.py — Discord level card generator.
+Internal render: 1600×500 → LANCZOS → 800×250 final output.
 
+Font: assets/fonts/levelfont.otf (bundled — no system font dependency).
+Avatar + background downloads run in parallel via asyncio.gather().
+"""
+
+import asyncio
 import io
 import os
-import glob
+
 import aiohttp
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-# ── Render / output dimensions ────────────────────────────────────────────────
-OUT_W  = 800
-OUT_H  = 250
-KART_W = OUT_W * 2   # 1600  — internal render width
-KART_H = OUT_H * 2   # 500   — internal render height
+# ── Dimensions ────────────────────────────────────────────────────────────────
+OUT_W, OUT_H = 800, 250
+W,     H     = OUT_W * 2, OUT_H * 2      # 1600 × 500 render canvas
 
-# Layout constants (all in render-pixel space)
-PAD      = 50
-LEFT_BAR = 8
-AV_SIZE  = 300        # avatar diameter (display ≈ 150 px)
-TEXT_X   = PAD + AV_SIZE + 60    # right-panel text start x = 410
+# ── Layout (render-px) ────────────────────────────────────────────────────────
+PAD     = 50
+AV_SIZE = 300
+AV_X    = PAD
+AV_Y    = (H - AV_SIZE) // 2             # 100 — vertically centred
+AV_CX   = AV_X + AV_SIZE // 2            # 200
+AV_CY   = AV_Y + AV_SIZE // 2            # 250
+TEXT_X  = AV_X + AV_SIZE + 60            # 410 — right panel start
+BAR_X   = TEXT_X
+BAR_Y   = 415
+BAR_W   = W - TEXT_X - PAD               # 1140
+BAR_H   = 34
 
+# ── Colours ───────────────────────────────────────────────────────────────────
+WHITE = (255, 255, 255, 255)
+MUTED = (158, 158, 192, 215)
+TRACK = (35,  35,  50,  255)
 
-# ── Font discovery ────────────────────────────────────────────────────────────
-
-def _find_font(names: list[str]) -> str | None:
-    dirs = [
-        "/usr/share/fonts", "/usr/local/share/fonts",
-        "/run/current-system/sw/share/fonts", "/nix/store",
-        "C:/Windows/Fonts",
-    ]
-    for name in names:
-        for d in dirs:
-            p = os.path.join(d, name)
-            if os.path.exists(p):
-                return p
-        for d in dirs:
-            if not os.path.isdir(d):
-                continue
-            hits = glob.glob(os.path.join(d, "**", name), recursive=True)
-            if hits:
-                return hits[0]
-    return None
+# ── Font ─────────────────────────────────────────────────────────────────────
+_FONT_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "levelfont.otf")
+)
 
 
-_BOLD  = _find_font(["DejaVuSans-Bold.ttf",    "LiberationSans-Bold.ttf",
-                      "FreeSansBold.ttf",        "Ubuntu-B.ttf",  "arialbd.ttf"])
-_PLAIN = _find_font(["DejaVuSans.ttf",          "LiberationSans-Regular.ttf",
-                      "FreeSans.ttf",            "Ubuntu-R.ttf",  "arial.ttf"])
-
-
-def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
-    """Load TTF font with safe fallback. Never returns default bitmap font unless unavoidable."""
-    path = _BOLD if bold else _PLAIN
-    if path:
+def _font(size: int) -> ImageFont.FreeTypeFont:
+    try:
+        return ImageFont.truetype(_FONT_PATH, size)
+    except Exception:
         try:
-            return ImageFont.truetype(path, size)
-        except Exception:
-            pass
-    return ImageFont.load_default()
+            return ImageFont.load_default(size=size)
+        except TypeError:
+            return ImageFont.load_default()
 
 
-# ── Color utilities ───────────────────────────────────────────────────────────
+# ── Colour helpers ────────────────────────────────────────────────────────────
 
 def _parse_hex(h: str) -> tuple[int, int, int]:
     try:
         h = h.strip("#")
-        return int(h[:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     except Exception:
         return (30, 30, 47)
 
 
-def _accent(h: str) -> tuple[int, int, int]:
-    """Derive a visible accent color from a hex string."""
-    r, g, b = _parse_hex(h)
-    m = max(r, g, b)
-    if m < 90:                         # too dark — boost to a visible level
-        f = 200 / max(m, 1)
-        r = min(int(r * f), 255)
-        g = min(int(g * f), 255)
-        b = min(int(b * f), 255)
-    return (r, g, b)
+def _accent(hex_color: str) -> tuple[int, int, int]:
+    """Boost very dark palette colors to a visible accent."""
+    r, g, b = _parse_hex(hex_color)
+    if max(r, g, b) < 90:
+        f = 200 / max(max(r, g, b), 1)
+        r, g, b = min(int(r * f), 255), min(int(g * f), 255), min(int(b * f), 255)
+    return r, g, b
 
+
+# ── Image helpers ─────────────────────────────────────────────────────────────
 
 def _circle_mask(size: int) -> Image.Image:
-    m = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(m).ellipse((0, 0, size - 1, size - 1), fill=255)
-    return m
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
+    return mask
 
 
-def _layer(base: Image.Image, draw_fn) -> tuple[Image.Image, ImageDraw.ImageDraw]:
-    """Create transparent RGBA layer, apply draw_fn, alpha-composite onto base."""
+def _composite(base: Image.Image, draw_fn) -> tuple[Image.Image, ImageDraw.ImageDraw]:
+    """Draw on a transparent layer and alpha-composite it onto base. Prevents white artifacts."""
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     draw_fn(ImageDraw.Draw(layer))
-    out = Image.alpha_composite(base, layer)
-    return out, ImageDraw.Draw(out)
+    result = Image.alpha_composite(base, layer)
+    return result, ImageDraw.Draw(result)
 
 
-# ── Helper 1: load_avatar ─────────────────────────────────────────────────────
+# ── Async I/O ─────────────────────────────────────────────────────────────────
 
-async def load_avatar(url: str, size: int) -> Image.Image:
-    """
-    Download avatar from URL.
-    Returns a square-cropped, LANCZOS-resized circular RGBA image.
-    Falls back to a placeholder if download fails.
-    """
+async def _fetch_image(url: str) -> Image.Image | None:
     try:
-        async with aiohttp.ClientSession() as ses:
-            async with ses.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
                 if r.status == 200:
-                    raw = Image.open(io.BytesIO(await r.read())).convert("RGBA")
-                    # center-crop to square
-                    w, h  = raw.size
-                    s     = min(w, h)
-                    raw   = raw.crop(((w - s) // 2, (h - s) // 2,
-                                      (w + s) // 2, (h + s) // 2))
-                    raw   = raw.resize((size, size), Image.Resampling.LANCZOS)
-                    # apply circular mask
-                    out   = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-                    out.paste(raw, (0, 0), _circle_mask(size))
-                    return out
+                    return Image.open(io.BytesIO(await r.read())).convert("RGBA")
     except Exception:
         pass
-
-    # placeholder avatar
-    ph = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    ImageDraw.Draw(ph).ellipse([0, 0, size - 1, size - 1], fill=(80, 80, 110, 255))
-    return ph
+    return None
 
 
-# ── Helper 2: process_background ─────────────────────────────────────────────
+async def load_avatar(url: str, size: int) -> Image.Image:
+    img = await _fetch_image(url)
 
-async def process_background(background: str, width: int, height: int) -> Image.Image:
-    """
-    background: hex string (e.g. '#1e1e2f') OR image URL.
-    Returns a (width × height) RGBA image with a dark overlay already applied.
-    Falls back to dark solid color on any error.
-    """
-    is_url = background.startswith(("http://", "https://"))
+    if img is None:
+        placeholder = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        ImageDraw.Draw(placeholder).ellipse([0, 0, size - 1, size - 1], fill=(80, 80, 110, 255))
+        return placeholder
 
-    if is_url:
-        try:
-            async with aiohttp.ClientSession() as ses:
-                async with ses.get(background, timeout=aiohttp.ClientTimeout(total=8)) as r:
-                    if r.status == 200:
-                        img = Image.open(io.BytesIO(await r.read())).convert("RGBA")
-                        # cover-resize with LANCZOS
-                        iw, ih  = img.size
-                        scale   = max(width / iw, height / ih)
-                        nw, nh  = int(iw * scale) + 1, int(ih * scale) + 1
-                        img     = img.resize((nw, nh), Image.Resampling.LANCZOS)
-                        left    = (nw - width)  // 2
-                        top     = (nh - height) // 2
-                        img     = img.crop((left, top, left + width, top + height))
-                        img     = img.filter(ImageFilter.GaussianBlur(2))
-                        # dark overlay for readability
-                        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 155))
-                        return Image.alpha_composite(img, overlay)
-        except Exception:
-            pass  # fall through to solid-color fallback
-
-    # Hex color → very dark derivation of the chosen color
-    r, g, b = _parse_hex(background)
-    base = (max(r // 9, 6), max(g // 9, 6), max(b // 8 + 3, 10))
-    return Image.new("RGBA", (width, height), (*base, 255))
+    w, h = img.size
+    s    = min(w, h)
+    img  = img.crop(((w - s) // 2, (h - s) // 2, (w + s) // 2, (h + s) // 2))
+    img  = img.resize((size, size), Image.Resampling.LANCZOS)
+    out  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    out.paste(img, (0, 0), _circle_mask(size))
+    return out
 
 
-# ── Helper 3: draw_xp_bar ────────────────────────────────────────────────────
+async def process_background(source: str, width: int, height: int) -> Image.Image:
+    """source: '#rrggbb' hex OR image URL. Returns width×height RGBA with dark overlay."""
+    if source.startswith(("http://", "https://")):
+        img = await _fetch_image(source)
+        if img is not None:
+            iw, ih = img.size
+            scale  = max(width / iw, height / ih)
+            nw, nh = int(iw * scale) + 1, int(ih * scale) + 1
+            img    = img.resize((nw, nh), Image.Resampling.LANCZOS)
+            left, top = (nw - width) // 2, (nh - height) // 2
+            img    = img.crop((left, top, left + width, top + height))
+            img    = img.filter(ImageFilter.GaussianBlur(2))
+            overlay = Image.new("RGBA", (width, height), (0, 0, 0, 155))
+            return Image.alpha_composite(img, overlay)
+
+    r, g, b = _parse_hex(source)
+    dark = (max(r // 9, 6), max(g // 9, 6), max(b // 8 + 3, 10))
+    return Image.new("RGBA", (width, height), (*dark, 255))
+
+
+# ── Card components ───────────────────────────────────────────────────────────
+
+def _draw_avatar(canvas: Image.Image, av_img: Image.Image,
+                 acc: tuple) -> tuple[Image.Image, ImageDraw.ImageDraw]:
+    def shadow(d):
+        sr = AV_SIZE // 2 + 14
+        d.ellipse([AV_CX - sr, AV_CY - sr, AV_CX + sr, AV_CY + sr], fill=(0, 0, 0, 88))
+    canvas, draw = _composite(canvas, shadow)
+
+    ring_r = AV_SIZE // 2 + 5
+    draw.ellipse([AV_CX - ring_r, AV_CY - ring_r, AV_CX + ring_r, AV_CY + ring_r],
+                 outline=(*acc, 255), width=4)
+
+    canvas.paste(av_img, (AV_X, AV_Y), av_img)
+    return canvas, ImageDraw.Draw(canvas)
+
+
+def _draw_accent_bars(canvas: Image.Image, acc: tuple) -> Image.Image:
+    def bars(d):
+        d.rectangle([(0, 0), (8, H)],      fill=(*acc, 255))
+        d.rectangle([(0, H - 8), (W, H)],  fill=(*acc, 228))
+    canvas, _ = _composite(canvas, bars)
+    return canvas
+
+
+def _draw_rozet_pill(canvas: Image.Image, draw: ImageDraw.ImageDraw,
+                     text: str, y: int, font: ImageFont.FreeTypeFont,
+                     acc: tuple) -> tuple[Image.Image, ImageDraw.ImageDraw, int]:
+    text = text[:24]
+    bbox = draw.textbbox((0, 0), text, font=font)
+    pw, ph = bbox[2] - bbox[0] + 30, 44
+
+    pill = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
+    ImageDraw.Draw(pill).rounded_rectangle(
+        [0, 0, pw - 1, ph - 1], radius=ph // 2,
+        fill=(*acc, 38), outline=(*acc, 145), width=1,
+    )
+    canvas.paste(pill, (TEXT_X, y), pill)
+    draw = ImageDraw.Draw(canvas)
+    draw.text((TEXT_X + 15, y + 8), text, font=font, fill=(*acc, 232))
+    return canvas, draw, y + ph + 8
+
+
+def draw_text_elements(canvas: Image.Image, draw: ImageDraw.ImageDraw,
+                       username: str, level: int,
+                       bio: str | None, aktif_rozet: str | None,
+                       acc: tuple) -> tuple[Image.Image, ImageDraw.ImageDraw, int]:
+    """Returns (canvas, draw, next_y) — first free Y below all text elements."""
+    fn_name  = _font(90)
+    fn_level = _font(56)
+    fn_sub   = _font(38)
+
+    y = 50
+    draw.text((TEXT_X, y), username[:20], font=fn_name,  fill=WHITE)
+    y += 90 + 10
+
+    draw.text((TEXT_X, y), f"Seviye {level}", font=fn_level, fill=(*acc, 255))
+    y += 56 + 12
+
+    if bio:
+        draw.text((TEXT_X, y), bio[:50], font=fn_sub, fill=MUTED)
+        y += 38 + 8
+
+    if aktif_rozet:
+        canvas, draw, y = _draw_rozet_pill(canvas, draw, aktif_rozet, y, fn_sub, acc)
+
+    return canvas, draw, y
+
+
+def _draw_stats(canvas: Image.Image, draw: ImageDraw.ImageDraw,
+                bakiye: int, siralama: int,
+                stat_y: int) -> tuple[Image.Image, ImageDraw.ImageDraw]:
+    fn_label = _font(32)
+    fn_value = _font(48)
+    col_w    = 280
+
+    for i, (label, value) in enumerate([("COINS", f"{bakiye:,}"), ("SIRALAMA", f"#{siralama:,}")]):
+        x = TEXT_X + i * col_w
+        draw.text((x, stat_y),      label, font=fn_label, fill=MUTED)
+        draw.text((x, stat_y + 34), value, font=fn_value, fill=WHITE)
+
+    def divider(d):
+        dx = TEXT_X + col_w - 18
+        d.rectangle([(dx, stat_y), (dx + 2, stat_y + 90)], fill=(255, 255, 255, 18))
+    return _composite(canvas, divider)
+
 
 def draw_xp_bar(canvas: Image.Image,
-                x: int, y: int, width: int, height: int,
-                current_xp: int, required_xp: int,
+                x: int, y: int, w: int, h: int,
+                current: int, required: int,
                 accent: tuple) -> Image.Image:
-    """
-    Draw a clean, minimal rounded XP bar.
-    - Track: dark gray (no glow, no noise)
-    - Fill: solid accent color
-    - No shine or gradient effects.
-    """
-    progress = min(current_xp / max(required_xp, 1), 1.0)
-    fill_w   = int(width * progress)
-    radius   = height // 2
+    radius   = h // 2
+    fill_w   = int(w * min(current / max(required, 1), 1.0))
 
-    # Dark track
-    def bg(d):
-        d.rounded_rectangle([x, y, x + width, y + height],
-                             radius=radius, fill=(35, 35, 50, 255))
-    canvas, _ = _layer(canvas, bg)
+    def track(d):
+        d.rounded_rectangle([x, y, x + w, y + h], radius=radius, fill=TRACK)
+    canvas, _ = _composite(canvas, track)
 
-    # Accent fill (solid, no effects)
     if fill_w > radius:
         def fill(d):
-            d.rounded_rectangle([x, y, x + fill_w, y + height],
-                                 radius=radius, fill=(*accent, 255))
-        canvas, _ = _layer(canvas, fill)
+            d.rounded_rectangle([x, y, x + fill_w, y + h], radius=radius, fill=(*accent, 255))
+        canvas, _ = _composite(canvas, fill)
 
     return canvas
 
 
-# ── Helper 4: draw_text_elements ─────────────────────────────────────────────
+def _draw_xp_text(draw: ImageDraw.ImageDraw, current: int, required: int) -> None:
+    fn    = _font(36)
+    pct   = int(min(current / max(required, 1), 1.0) * 100)
+    left  = f"{current:,} / {required:,} XP"
+    right = f"%{pct}"
+    text_y = BAR_Y + BAR_H + 6
 
-def draw_text_elements(
-    canvas:       Image.Image,
-    draw:         ImageDraw.ImageDraw,
-    username:     str,
-    level:        int,
-    bio:          str | None,
-    aktif_rozet:  str | None,
-    text_x:       int,
-    accent:       tuple,
-) -> tuple[Image.Image, ImageDraw.ImageDraw, int]:
-    """
-    Draw username, level, optional bio, optional rozet pill.
-    Font sizes are defined at 2x render scale — readable after LANCZOS downscale.
-    Returns (canvas, draw, next_y) where next_y is the first free Y below all text.
-    """
-    WHITE = (255, 255, 255, 255)
-    MUTED = (158, 158, 192, 215)
-
-    # Font sizes at 2x render (display size = half after LANCZOS):
-    fn_name  = _font(90, bold=True)    # display ≈ 45 px
-    fn_level = _font(56, bold=True)    # display ≈ 28 px
-    fn_sub   = _font(38, bold=False)   # display ≈ 19 px
-
-    # ── Username ───────────────────────────────────────────────
-    draw.text((text_x, 50), username[:20], font=fn_name, fill=WHITE)
-    ty = 50 + 90 + 10   # 150
-
-    # ── Level ─────────────────────────────────────────────────
-    draw.text((text_x, ty), f"Seviye {level}", font=fn_level, fill=(*accent, 255))
-    ty += 56 + 12   # 218
-
-    # ── Bio (optional) ────────────────────────────────────────
-    if bio:
-        draw.text((text_x, ty), bio[:50], font=fn_sub, fill=MUTED)
-        ty += 38 + 8   # 264
-
-    # ── Rozet pill (optional) ─────────────────────────────────
-    if aktif_rozet:
-        rtxt = aktif_rozet[:24]
-        bbox = draw.textbbox((0, 0), rtxt, font=fn_sub)
-        pw   = bbox[2] - bbox[0] + 30
-        ph   = 44
-        pill = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
-        ImageDraw.Draw(pill).rounded_rectangle(
-            [0, 0, pw - 1, ph - 1], radius=ph // 2,
-            fill=(*accent, 38), outline=(*accent, 145), width=1,
-        )
-        canvas.paste(pill, (text_x, ty), pill)
-        draw = ImageDraw.Draw(canvas)
-        draw.text((text_x + 15, ty + 8), rtxt, font=fn_sub, fill=(*accent, 232))
-        ty += ph + 8   # +52
-
-    return canvas, draw, ty
+    draw.text((BAR_X, text_y), left, font=fn, fill=MUTED)
+    bbox = draw.textbbox((0, 0), right, font=fn)
+    draw.text((BAR_X + BAR_W - (bbox[2] - bbox[0]), text_y), right, font=fn, fill=WHITE)
 
 
-# ── Main entry point ──────────────────────────────────────────────────────────
+def _draw_separator(canvas: Image.Image) -> tuple[Image.Image, ImageDraw.ImageDraw]:
+    def line(d):
+        d.rectangle([(TEXT_X, BAR_Y - 18), (W - PAD, BAR_Y - 16)], fill=(255, 255, 255, 18))
+    return _composite(canvas, line)
+
+
+def _supersample(canvas: Image.Image) -> Image.Image:
+    """Composite over dark bg → LANCZOS resize → RGB. Eliminates transparent-to-white artifacts."""
+    dark  = Image.new("RGBA", (W, H), (8, 8, 14, 255))
+    final = Image.alpha_composite(dark, canvas)
+    return final.resize((OUT_W, OUT_H), Image.Resampling.LANCZOS).convert("RGB")
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
 
 async def profil_karti_olustur(
     kullanici_adi: str,
@@ -270,131 +282,25 @@ async def profil_karti_olustur(
     renk_hex:      str = "2b2d31",
     bio:           str | None = None,
 ) -> io.BytesIO:
-    """
-    Generate a Discord level card.
-    Internal render: 1600x500 → LANCZOS downscale → 800x250 final output.
-    """
-    acc = _accent(renk_hex)
+    acc       = _accent(renk_hex)
+    bg_source = arka_plan_url or f"#{renk_hex}"
 
-    # ── Step 1: Background ────────────────────────────────────
-    bg_source = arka_plan_url if arka_plan_url else f"#{renk_hex}"
-    kart      = await process_background(bg_source, KART_W, KART_H)
-
-    # ── Step 2: Avatar ────────────────────────────────────────
-    av_img = await load_avatar(avatar_url, AV_SIZE)
-    av_x   = PAD
-    av_y   = (KART_H - AV_SIZE) // 2   # vertically centered = 100
-    av_cx  = av_x + AV_SIZE // 2        # 200
-    av_cy  = av_y + AV_SIZE // 2        # 250
-
-    # Avatar shadow
-    def av_shadow(d):
-        sr = AV_SIZE // 2 + 14
-        d.ellipse([av_cx - sr, av_cy - sr, av_cx + sr, av_cy + sr],
-                  fill=(0, 0, 0, 88))
-    kart, draw = _layer(kart, av_shadow)
-
-    # Accent ring (4 render px = 2 display px)
-    ring_r = AV_SIZE // 2 + 5
-    draw.ellipse([av_cx - ring_r, av_cy - ring_r, av_cx + ring_r, av_cy + ring_r],
-                 outline=(*acc, 255), width=4)
-
-    kart.paste(av_img, (av_x, av_y), av_img)
-    draw = ImageDraw.Draw(kart)
-
-    # ── Step 3: Left accent bar ───────────────────────────────
-    def lbar(d):
-        d.rectangle([(0, 0), (LEFT_BAR, KART_H)], fill=(*acc, 255))
-    kart, draw = _layer(kart, lbar)
-
-    # ── Step 4: Text elements ─────────────────────────────────
-    kart, draw, stat_y = draw_text_elements(
-        kart, draw, kullanici_adi, level, bio, aktif_rozet, TEXT_X, acc
+    # Avatar ve background aynı anda indirilir
+    canvas, av_img = await asyncio.gather(
+        process_background(bg_source, W, H),
+        load_avatar(avatar_url, AV_SIZE),
     )
 
-    # ── Step 5: Stats row (COINS + SIRALAMA) ──────────────────
-    WHITE = (255, 255, 255, 255)
-    MUTED = (158, 158, 192, 215)
-    fn_slbl = _font(32, bold=False)   # display ≈ 16 px
-    fn_sval = _font(48, bold=True)    # display ≈ 24 px
-
-    stats  = [("COINS", f"{bakiye:,}"), ("SIRALAMA", f"#{siralama:,}")]
-    col_w  = 280
-    for i, (lbl, val) in enumerate(stats):
-        sx = TEXT_X + i * col_w
-        draw.text((sx, stat_y),      lbl, font=fn_slbl, fill=MUTED)
-        draw.text((sx, stat_y + 34), val, font=fn_sval, fill=WHITE)
-
-    # Vertical dividers between stats
-    def vdivs(d):
-        for i in range(1, len(stats)):
-            dx = TEXT_X + i * col_w - 18
-            d.rectangle([(dx, stat_y), (dx + 2, stat_y + 90)],
-                        fill=(255, 255, 255, 18))
-    kart, draw = _layer(kart, vdivs)
-
-    # ── Step 6: Horizontal separator before XP bar ────────────
-    bar_y = 415
-    def hsep(d):
-        d.rectangle([(TEXT_X, bar_y - 18), (KART_W - PAD, bar_y - 16)],
-                    fill=(255, 255, 255, 18))
-    kart, draw = _layer(kart, hsep)
-
-    # ── Step 7: XP bar ────────────────────────────────────────
-    bar_x = TEXT_X
-    bar_w = KART_W - TEXT_X - PAD   # 1140 render px
-    bar_h = 34
-
-    kart = draw_xp_bar(kart, bar_x, bar_y, bar_w, bar_h, exp, gereken_exp, acc)
-    draw = ImageDraw.Draw(kart)
-
-    fn_xp = _font(36, bold=False)   # display ≈ 18 px
-    pct       = int(min(exp / max(gereken_exp, 1), 1.0) * 100)
-    xp_left   = f"{exp:,} / {gereken_exp:,} XP"
-    xp_right  = f"%{pct}"
-
-    draw.text((bar_x, bar_y + bar_h + 6), xp_left, font=fn_xp, fill=MUTED)
-    bbox = draw.textbbox((0, 0), xp_right, font=fn_xp)
-    draw.text((bar_x + bar_w - (bbox[2] - bbox[0]), bar_y + bar_h + 6),
-              xp_right, font=fn_xp, fill=WHITE)
-
-    # ── Step 8: Bottom accent stripe ──────────────────────────
-    def stripe(d):
-        d.rectangle([(0, KART_H - 8), (KART_W, KART_H)], fill=(*acc, 228))
-    kart, _ = _layer(kart, stripe)
-
-    # ── Step 9: Supersampling → 800x250 ───────────────────────
-    # Composite over dark bg first (prevents transparent → white artifacts)
-    dark  = Image.new("RGBA", (KART_W, KART_H), (8, 8, 14, 255))
-    final = Image.alpha_composite(dark, kart)
-
-    # LANCZOS resize to final output dimensions
-    final = final.resize((OUT_W, OUT_H), Image.Resampling.LANCZOS)
+    canvas, draw = _draw_avatar(canvas, av_img, acc)
+    canvas       = _draw_accent_bars(canvas, acc)
+    canvas, draw, stat_y = draw_text_elements(canvas, draw, kullanici_adi, level, bio, aktif_rozet, acc)
+    canvas, draw = _draw_stats(canvas, draw, bakiye, siralama, stat_y)
+    canvas, draw = _draw_separator(canvas)
+    canvas       = draw_xp_bar(canvas, BAR_X, BAR_Y, BAR_W, BAR_H, exp, gereken_exp, acc)
+    draw         = ImageDraw.Draw(canvas)
+    _draw_xp_text(draw, exp, gereken_exp)
 
     buf = io.BytesIO()
-    final.convert("RGB").save(buf, format="PNG", optimize=True)
+    _supersample(canvas).save(buf, format="PNG", optimize=True)
     buf.seek(0)
     return buf
-
-
-# ── Example usage ─────────────────────────────────────────────────────────────
-# import asyncio
-#
-# async def main():
-#     buf = await profil_karti_olustur(
-#         kullanici_adi = "tmaselica",
-#         avatar_url    = "https://cdn.discordapp.com/avatars/.../avatar.png",
-#         level         = 23,
-#         exp           = 1234,
-#         gereken_exp   = 1890,
-#         bakiye        = 15230,
-#         siralama      = 4,
-#         aktif_rozet   = "Vanguard",
-#         arka_plan_url = None,        # or image URL
-#         renk_hex      = "6c3483",    # or "2b2d31" for default
-#         bio           = "Ascelia sunucusunun kahraman!",
-#     )
-#     with open("card.png", "wb") as f:
-#         f.write(buf.read())
-#
-# asyncio.run(main())
