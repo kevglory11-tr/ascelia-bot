@@ -34,7 +34,7 @@ ARKA_PLAN_URL_MAP: dict[str, str] = {
     "varsayilan": None,
     "kirmizi":    f"{_BANNERS}/kirmizi.jpg",
     "mavi":       f"{_BANNERS}/mavi.jpg",
-    "mor":        f"{_BANNERS}/mor.jpg",
+    "mor":        f"{_BANNERS}/mor.gif",
     "altin":      f"{_BANNERS}/altin.jpg",
     "zumrut":     f"{_BANNERS}/zumrut.jpg",
     "gunes":      f"{_BANNERS}/gunes.jpg",
