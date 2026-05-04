@@ -127,7 +127,7 @@ class ProfilCog(commands.Cog):
 
             # Profil kartı görsel üret
             try:
-                buf = await profil_karti_olustur(
+                buf, is_animated = await profil_karti_olustur(
                     kullanici_adi  = hedef.display_name,
                     avatar_url     = avatar_url,
                     level          = level,
@@ -140,7 +140,8 @@ class ProfilCog(commands.Cog):
                     renk_hex       = renk,
                     bio            = kayit["profil_bio"],
                 )
-                dosya = discord.File(buf, filename="profil.png")
+                fname = "profil.gif" if is_animated else "profil.png"
+                dosya = discord.File(buf, filename=fname)
             except Exception as e:
                 log.error(f"Kart üretimi başarısız: {e}", exc_info=True)
                 dosya = None
