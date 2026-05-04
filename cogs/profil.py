@@ -32,33 +32,52 @@ EXP_MESAJ_MAX   = 15
 EXP_COOLDOWN_SN = 60
 
 _BANNERS = "assets/banners"
-ARKA_PLAN_URL_MAP: dict[str, str | None] = {
-    # aktif arka planlar
-    "varsayilan":     None,
-    "gojo_statik":    f"{_BANNERS}/mor.jpg",
-    "gojo_hareketli": f"{_BANNERS}/mor.gif",
-    # eski renk ID'leri — backward compat, mağazada gösterilmez
-    "mor":    f"{_BANNERS}/mor.gif",
-    "kirmizi": f"{_BANNERS}/kirmizi.jpg",
-    "mavi":    f"{_BANNERS}/mavi.jpg",
-    "altin":   f"{_BANNERS}/altin.jpg",
-    "zumrut":  f"{_BANNERS}/zumrut.jpg",
-    "gunes":   f"{_BANNERS}/gunes.jpg",
-    "galaksi": f"{_BANNERS}/galaksi.jpg",
-    "ejder":   f"{_BANNERS}/ejder.jpg",
-    "efsane":  f"{_BANNERS}/efsane.jpg",
+
+# Dosya adı, ID'den farklı olan özel durumlar.
+_BANNER_DOSYA_OVERRIDE: dict[str, str] = {
+    "gojo_statik":    "mor",
+    "gojo_hareketli": "mor",
 }
 
+
+def _build_url_map() -> dict[str, str | None]:
+    m: dict[str, str | None] = {"varsayilan": None}
+    for ap in PROFIL_ARKA_PLANLAR_STATIK:
+        if ap["id"] == "varsayilan":
+            continue
+        dosya = _BANNER_DOSYA_OVERRIDE.get(ap["id"], ap["id"])
+        m[ap["id"]] = f"{_BANNERS}/{dosya}.jpg"
+    for ap in PROFIL_ARKA_PLANLAR_HAREKETLI:
+        ap_id   = ap["id"]
+        base_id = ap_id[:-4] if ap_id.endswith("_gif") else ap_id
+        dosya   = _BANNER_DOSYA_OVERRIDE.get(ap_id, base_id)
+        m[ap_id] = f"{_BANNERS}/{dosya}.gif"
+    # Eski renk ID'leri — backward compat, mağazada görünmez
+    m.update({
+        "mor":     f"{_BANNERS}/mor.gif",
+        "kirmizi": None,
+        "mavi":    None,
+        "altin":   None,
+        "zumrut":  None,
+        "gunes":   None,
+        "galaksi": None,
+        "ejder":   None,
+        "efsane":  None,
+    })
+    return m
+
+
+ARKA_PLAN_URL_MAP: dict[str, str | None] = _build_url_map()
 _TUM_AP: dict[str, dict] = {ap["id"]: ap for ap in PROFIL_ARKA_PLANLAR}
 
 # Eski renk ID'leri için fallback renk/isim (mağazada görünmez ama /profil'de kullanılır)
 _LEGACY_AP: dict[str, dict] = {
     "mor":     {"renk": "6c3483", "isim": "Gojo"},
-    "kirmizi": {"renk": "922b21", "isim": "Kirmizi"},
+    "kirmizi": {"renk": "922b21", "isim": "Kırmızı"},
     "mavi":    {"renk": "1a5276", "isim": "Mavi"},
-    "altin":   {"renk": "9a7d0a", "isim": "Altin"},
-    "zumrut":  {"renk": "1e8449", "isim": "Zumrut"},
-    "gunes":   {"renk": "ca6f1e", "isim": "Gunes"},
+    "altin":   {"renk": "9a7d0a", "isim": "Altın"},
+    "zumrut":  {"renk": "1e8449", "isim": "Zümrüt"},
+    "gunes":   {"renk": "ca6f1e", "isim": "Güneş"},
     "galaksi": {"renk": "4a235a", "isim": "Galaksi"},
     "ejder":   {"renk": "641e16", "isim": "Ejder"},
     "efsane":  {"renk": "784212", "isim": "Efsane"},
@@ -84,7 +103,7 @@ def _arka_plan_isim(ap_id: str) -> str:
         return ap["isim"]
     if ap := _LEGACY_AP.get(ap_id):
         return ap["isim"]
-    return "Varsayilan"
+    return "Varsayılan"
 
 
 def _avatar_url(member: discord.Member) -> str:
@@ -342,40 +361,59 @@ class KategoriButton(discord.ui.Button):
         embed = _kategori_embed(self.label, self.gems, self.mevcut)
         view  = ArkaPlanKategoriView(
             self.arka_planlar, self.label,
-            self.discord_id, self.gems, self.mevcut, self.owned,
+            self.discord_id, self.gems, self.mevcut, self.owned, sayfa=0,
         )
         await interaction.response.edit_message(embed=embed, view=view)
 
 
 class ArkaPlanKategoriView(discord.ui.View):
-    """Kategori menüsü: Select + Geri butonu."""
+    """Kategori menüsü: Select (sayfalı) + Geri / Önceki / Sonraki butonları."""
 
     def __init__(self, arka_planlar: list, baslik: str, discord_id: int,
-                 gems: int, mevcut: str, owned: list[str]):
+                 gems: int, mevcut: str, owned: list[str], sayfa: int = 0):
         super().__init__(timeout=180)
-        self.add_item(ArkaPlanSelect(arka_planlar, baslik, discord_id, gems, mevcut, owned))
+        start    = sayfa * 25
+        end      = min(start + 25, len(arka_planlar))
+        sayfa_ap = arka_planlar[start:end]
+
+        self.add_item(ArkaPlanSelect(
+            sayfa_ap, arka_planlar, baslik, discord_id, gems, mevcut, owned, sayfa,
+        ))
         self.add_item(GeriButton(discord_id, gems, mevcut, owned))
+
+        if sayfa > 0:
+            self.add_item(NavButton(
+                "◀ Önceki", sayfa - 1,
+                arka_planlar, baslik, discord_id, gems, mevcut, owned,
+            ))
+        if end < len(arka_planlar):
+            self.add_item(NavButton(
+                "Sonraki ▶", sayfa + 1,
+                arka_planlar, baslik, discord_id, gems, mevcut, owned,
+            ))
 
 
 class ArkaPlanSelect(discord.ui.Select):
-    def __init__(self, arka_planlar: list, baslik: str, discord_id: int,
-                 gems: int, mevcut: str, owned: list[str]):
-        self.arka_planlar = arka_planlar
-        self.baslik       = baslik
-        self.discord_id   = discord_id
-        self.gems         = gems
-        self.mevcut       = mevcut
-        self.owned        = owned
-        options = [_ap_option(ap, mevcut, gems, owned) for ap in arka_planlar]
-        super().__init__(placeholder="Arka plan seç...", options=options[:25])
+    def __init__(self, sayfa_arka_planlar: list, tum_arka_planlar: list,
+                 baslik: str, discord_id: int, gems: int, mevcut: str,
+                 owned: list[str], sayfa: int):
+        self.tum_arka_planlar = tum_arka_planlar
+        self.baslik     = baslik
+        self.discord_id = discord_id
+        self.gems       = gems
+        self.mevcut     = mevcut
+        self.owned      = owned
+        self.sayfa      = sayfa
+        options = [_ap_option(ap, mevcut, gems, owned) for ap in sayfa_arka_planlar]
+        super().__init__(placeholder="Arka plan seç...", options=options, row=0)
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.discord_id:
             await interaction.response.send_message("Bu sana ait değil!", ephemeral=True)
             return
 
-        secim = self.values[0]
-        ap    = _TUM_AP[secim]
+        secim    = self.values[0]
+        ap       = _TUM_AP[secim]
         is_owned = ap["fiyat"] == 0 or secim in self.owned
 
         new_gems  = self.gems
@@ -395,11 +433,10 @@ class ArkaPlanSelect(discord.ui.Select):
 
         await database.update_profil(self.discord_id, profil_arka_plan=secim)
 
-        # Mesajı güncelle (yeni ownership/bakiye yansısın)
         embed = _kategori_embed(self.baslik, new_gems, secim)
         view  = ArkaPlanKategoriView(
-            self.arka_planlar, self.baslik,
-            self.discord_id, new_gems, secim, new_owned,
+            self.tum_arka_planlar, self.baslik,
+            self.discord_id, new_gems, secim, new_owned, self.sayfa,
         )
         await interaction.response.edit_message(embed=embed, view=view)
 
@@ -412,7 +449,7 @@ class ArkaPlanSelect(discord.ui.Select):
 
 class GeriButton(discord.ui.Button):
     def __init__(self, discord_id: int, gems: int, mevcut: str, owned: list[str]):
-        super().__init__(label="← Geri", style=discord.ButtonStyle.secondary)
+        super().__init__(label="← Geri", style=discord.ButtonStyle.secondary, row=1)
         self.discord_id = discord_id
         self.gems       = gems
         self.mevcut     = mevcut
@@ -424,6 +461,32 @@ class GeriButton(discord.ui.Button):
             return
         embed = _magazasi_embed(self.gems, self.mevcut)
         view  = ArkaPlanMainView(self.discord_id, self.gems, self.mevcut, self.owned)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class NavButton(discord.ui.Button):
+    """Sayfa geçiş butonu (◀ Önceki / Sonraki ▶)."""
+
+    def __init__(self, label: str, sayfa: int, arka_planlar: list, baslik: str,
+                 discord_id: int, gems: int, mevcut: str, owned: list[str]):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, row=1)
+        self.sayfa        = sayfa
+        self.arka_planlar = arka_planlar
+        self.baslik       = baslik
+        self.discord_id   = discord_id
+        self.gems         = gems
+        self.mevcut       = mevcut
+        self.owned        = owned
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.discord_id:
+            await interaction.response.send_message("Bu menü sana ait değil!", ephemeral=True)
+            return
+        embed = _kategori_embed(self.baslik, self.gems, self.mevcut)
+        view  = ArkaPlanKategoriView(
+            self.arka_planlar, self.baslik,
+            self.discord_id, self.gems, self.mevcut, self.owned, self.sayfa,
+        )
         await interaction.response.edit_message(embed=embed, view=view)
 
 
