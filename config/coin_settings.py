@@ -12,7 +12,6 @@ HAZINE_MAX_COIN   = 200
 GUNLUK_COIN       = 50
 
 # ── Market (herkes için aynı) ─────────────────────────────
-# gem: satın alımda verilecek bonus Gem miktarı (0 = yok)
 MARKET_URUNLER = [
     {"id": "mp_100", "isim": "🎟️ 100 MP Kuponu", "fiyat": 500,  "gem": 0},
     {"id": "mp_200", "isim": "🎟️ 200 MP Kuponu", "fiyat": 1000, "gem": 0},
@@ -27,16 +26,16 @@ GEM_COIN_KURU     = 200   # 1 Gem = 200 Coin
 # ── Patron ────────────────────────────────────────────────
 PATRON_KANAL_ID        = int(os.getenv("PATRON_KANAL_ID", "0"))
 PATRON_SONUC_KANAL_ID  = int(os.getenv("PATRON_SONUC_KANAL_ID", "0"))
-PATRON_MIN_SAAT   = 1            # Min 1 saat aralık
-PATRON_MAX_SAAT   = 3            # Max 3 saat aralık
-PATRON_HP         = 750         # Sabit HP (scaling kaldırıldı)
-PATRON_HP_SCALING = 0           # Scaling devre dışı
-PATRON_SURE_DK    = 60          # Savaş süresi (dakika)
+PATRON_MIN_SAAT   = 1
+PATRON_MAX_SAAT   = 3
+PATRON_HP         = 750
+PATRON_HP_SCALING = 0
+PATRON_SURE_DK    = 60
 PATRON_MAX_SALDIRI = 3
 PATRON_HASAR_MIN  = 20
 PATRON_HASAR_MAX  = 80
-PATRON_MAX_INDIRIM_SN = 21600   # Yazarak max 6 saat erken çağırılabilir
-PATRON_INDIRIM_ESIK   = 5       # Her 5 unique yazan → 30 dk indirim
+PATRON_MAX_INDIRIM_SN = 21600
+PATRON_INDIRIM_ESIK   = 5
 
 # ── Bildirim Kanalı ───────────────────────────────────────
 BILDIRIM_KANAL_ID = int(os.getenv("BILDIRIM_KANAL_ID", "0"))
@@ -61,7 +60,7 @@ OZEL_ROZETLER = [
     {"id": "referans_10", "isim": "Davetci",             "emoji": "\U0001f4e8"},
 ]
 
-# ── Rozet Mağazası (coin ile satın alınabilen) ─────────────
+# ── Rozet Mağazası ─────────────────────────────────────────
 ROZET_MAGAZA = [
     {"id": "rm_alev",    "isim": "Alev",    "emoji": "\U0001f525", "fiyat": 200},
     {"id": "rm_yildiz",  "isim": "Yildiz",  "emoji": "\U00002b50", "fiyat": 300},
@@ -74,15 +73,26 @@ ROZET_MAGAZA = [
 ]
 
 # ── Profil Arka Plan Sistemi ───────────────────────────────
-PROFIL_ARKA_PLANLAR = [
-    {"id": "varsayilan", "isim": "Varsayilan",  "renk": "2b2d31", "fiyat": 0,    "emoji": "⬛"},
-    {"id": "kirmizi",    "isim": "Kirmizi",     "renk": "922b21", "fiyat": 300,  "emoji": "\U0001f7e5"},
-    {"id": "mavi",       "isim": "Mavi",        "renk": "1a5276", "fiyat": 300,  "emoji": "\U0001f7e6"},
-    {"id": "mor",        "isim": "Mor",         "renk": "6c3483", "fiyat": 300,  "emoji": "\U0001f7ea"},
-    {"id": "altin",      "isim": "Altin",       "renk": "9a7d0a", "fiyat": 500,  "emoji": "\U0001f7e8"},
-    {"id": "zumrut",     "isim": "Zumrut",      "renk": "1e8449", "fiyat": 500,  "emoji": "\U0001f7e9"},
-    {"id": "gunes",      "isim": "Gunes",       "renk": "ca6f1e", "fiyat": 500,  "emoji": "\U0001f7e7"},
-    {"id": "galaksi",    "isim": "Galaksi",     "renk": "4a235a", "fiyat": 800,  "emoji": "\U0001f52e"},
-    {"id": "ejder",      "isim": "Ejder",       "renk": "641e16", "fiyat": 800,  "emoji": "\U0001f409"},
-    {"id": "efsane",     "isim": "Efsane",      "renk": "784212", "fiyat": 1000, "emoji": "⚡"},
+# para_birimi: "coin" → M2B Coin harcama, "gem" → Gem harcama
+# fiyat: ilgili para biriminden tutar
+
+PROFIL_ARKA_PLANLAR_STATIK = [
+    {"id": "varsayilan",  "isim": "Varsayilan",  "renk": "2b2d31", "fiyat": 0,    "para_birimi": "coin", "emoji": "⬛"},
+    {"id": "kirmizi",     "isim": "Kirmizi",     "renk": "922b21", "fiyat": 300,  "para_birimi": "coin", "emoji": "\U0001f7e5"},
+    {"id": "mavi",        "isim": "Mavi",        "renk": "1a5276", "fiyat": 300,  "para_birimi": "coin", "emoji": "\U0001f7e6"},
+    {"id": "mor",         "isim": "Mor",         "renk": "6c3483", "fiyat": 300,  "para_birimi": "coin", "emoji": "\U0001f7ea"},
+    {"id": "altin",       "isim": "Altin",       "renk": "9a7d0a", "fiyat": 500,  "para_birimi": "coin", "emoji": "\U0001f7e8"},
+    {"id": "zumrut",      "isim": "Zumrut",      "renk": "1e8449", "fiyat": 500,  "para_birimi": "coin", "emoji": "\U0001f7e9"},
+    {"id": "gunes",       "isim": "Gunes",       "renk": "ca6f1e", "fiyat": 500,  "para_birimi": "coin", "emoji": "\U0001f7e7"},
+    {"id": "galaksi",     "isim": "Galaksi",     "renk": "4a235a", "fiyat": 800,  "para_birimi": "coin", "emoji": "\U0001f52e"},
+    {"id": "ejder",       "isim": "Ejder",       "renk": "641e16", "fiyat": 800,  "para_birimi": "coin", "emoji": "\U0001f409"},
+    {"id": "efsane",      "isim": "Efsane",      "renk": "784212", "fiyat": 1000, "para_birimi": "coin", "emoji": "⚡"},
+    {"id": "gojo_statik", "isim": "Gojo",        "renk": "6c3483", "fiyat": 1,    "para_birimi": "gem",  "emoji": "\U0001f7e3"},
 ]
+
+PROFIL_ARKA_PLANLAR_HAREKETLI = [
+    {"id": "gojo_hareketli", "isim": "Gojo Hareketli", "renk": "6c3483", "fiyat": 4, "para_birimi": "gem", "emoji": "✨"},
+]
+
+# Geriye dönük uyumluluk için kombine liste (tüm cog'larda _arka_plan_renk için kullanılır)
+PROFIL_ARKA_PLANLAR = PROFIL_ARKA_PLANLAR_STATIK + PROFIL_ARKA_PLANLAR_HAREKETLI

@@ -1,24 +1,28 @@
 """
-cogs/profil.py — /profil, /profil-duzenle, /rozet-sec komutları.
+cogs/profil.py — /profil, /profil-duzenle, /rozet-sec, /arka-plan komutları.
 EXP sistemi (mesaj başına) + dinamik profil kartı görsel üretimi.
 """
 
-import io
 import discord
 from discord.ext import commands
 from discord import app_commands
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import random
 
 import database
 from utils.logger import setup_logger
 from utils.profil_karti import profil_karti_olustur
-from config.coin_settings import OZEL_ROZETLER, PROFIL_ARKA_PLANLAR, ROZET_MAGAZA
+from config.coin_settings import (
+    OZEL_ROZETLER, ROZET_MAGAZA,
+    PROFIL_ARKA_PLANLAR,
+    PROFIL_ARKA_PLANLAR_STATIK,
+    PROFIL_ARKA_PLANLAR_HAREKETLI,
+)
 
-def _tum_rozetler() -> list:
-    return OZEL_ROZETLER + ROZET_MAGAZA
+# ── Sabitler ──────────────────────────────────────────────────────────────────
 
 M2B  = "<:m2bcoin:1480481551337783437>"
+GEM  = "💎"
 OK   = "<a:olumlutick:1478524954688356494>"
 FAIL = "❌"
 
@@ -28,26 +32,66 @@ EXP_MESAJ_MIN   = 5
 EXP_MESAJ_MAX   = 15
 EXP_COOLDOWN_SN = 60
 
-# Arka plan URL haritası — buraya istediğin oyun görsellerini ekle
 _BANNERS = "assets/banners"
-ARKA_PLAN_URL_MAP: dict[str, str] = {
-    "varsayilan": None,
-    "kirmizi":    f"{_BANNERS}/kirmizi.jpg",
-    "mavi":       f"{_BANNERS}/mavi.jpg",
-    "mor":        f"{_BANNERS}/mor.gif",
-    "altin":      f"{_BANNERS}/altin.jpg",
-    "zumrut":     f"{_BANNERS}/zumrut.jpg",
-    "gunes":      f"{_BANNERS}/gunes.jpg",
-    "galaksi":    f"{_BANNERS}/galaksi.jpg",
-    "ejder":      f"{_BANNERS}/ejder.jpg",
-    "efsane":     f"{_BANNERS}/efsane.jpg",
+ARKA_PLAN_URL_MAP: dict[str, str | None] = {
+    "varsayilan":     None,
+    "kirmizi":        f"{_BANNERS}/kirmizi.jpg",
+    "mavi":           f"{_BANNERS}/mavi.jpg",
+    "mor":            f"{_BANNERS}/mor.gif",
+    "altin":          f"{_BANNERS}/altin.jpg",
+    "zumrut":         f"{_BANNERS}/zumrut.jpg",
+    "gunes":          f"{_BANNERS}/gunes.jpg",
+    "galaksi":        f"{_BANNERS}/galaksi.jpg",
+    "ejder":          f"{_BANNERS}/ejder.jpg",
+    "efsane":         f"{_BANNERS}/efsane.jpg",
+    "gojo_statik":    f"{_BANNERS}/mor.jpg",
+    "gojo_hareketli": f"{_BANNERS}/mor.gif",
 }
+
+# id → dict araması için hazır harita
+_TUM_AP: dict[str, dict] = {ap["id"]: ap for ap in PROFIL_ARKA_PLANLAR}
+
+
+# ── Yardımcı fonksiyonlar ─────────────────────────────────────────────────────
+
+def _tum_rozetler() -> list:
+    return OZEL_ROZETLER + ROZET_MAGAZA
 
 
 def _arka_plan_renk(ap_id: str) -> str:
-    ap = next((a for a in PROFIL_ARKA_PLANLAR if a["id"] == ap_id), None)
+    ap = _TUM_AP.get(ap_id)
     return ap["renk"] if ap else "2b2d31"
 
+
+def _arka_plan_isim(ap_id: str) -> str:
+    ap = _TUM_AP.get(ap_id)
+    return ap["isim"] if ap else ap_id
+
+
+def _avatar_url(member: discord.Member) -> str:
+    """Animasyonlu avatar varsa GIF URL, yoksa varsayılan URL döndürür."""
+    av = member.display_avatar
+    if av.is_animated():
+        return str(av.replace(format="gif").url)
+    return str(av.url)
+
+
+async def _satin_al(discord_id: int, ap: dict) -> tuple[bool, int]:
+    """
+    Arka plan için ödeme alır.
+    Returns (başarılı, kalan_bakiye).
+    """
+    if ap.get("para_birimi") == "gem":
+        ok    = await database.remove_gem(discord_id, ap["fiyat"], tip="arka_plan", aciklama=f"Arka plan: {ap['isim']}")
+        kalan = await database.get_gem_bakiye(discord_id)
+    else:
+        ok    = await database.remove_coins(discord_id, ap["fiyat"], aciklama=f"Arka plan: {ap['isim']}")
+        kayit = await database.get_user(discord_id)
+        kalan = kayit["bakiye"] if kayit else 0
+    return ok, kalan
+
+
+# ── Cog ───────────────────────────────────────────────────────────────────────
 
 class ProfilCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -122,36 +166,24 @@ class ProfilCog(commands.Cog):
                 if r:
                     aktif_rozet_isim = r["isim"]
 
-            arka_plan_url = ARKA_PLAN_URL_MAP.get(ap_id)
-            avatar_url    = str(hedef.display_avatar.url)
-
-            # Profil kartı görsel üret
             try:
                 buf, is_animated = await profil_karti_olustur(
                     kullanici_adi  = hedef.display_name,
-                    avatar_url     = avatar_url,
+                    avatar_url     = _avatar_url(hedef),
                     level          = level,
                     exp            = exp,
                     gereken_exp    = gereken,
                     bakiye         = bakiye,
                     siralama       = sira,
                     aktif_rozet    = aktif_rozet_isim,
-                    arka_plan_url  = arka_plan_url,
+                    arka_plan_url  = ARKA_PLAN_URL_MAP.get(ap_id),
                     renk_hex       = renk,
                     bio            = kayit["profil_bio"],
                 )
                 fname = "profil.gif" if is_animated else "profil.png"
-                dosya = discord.File(buf, filename=fname)
+                await interaction.followup.send(file=discord.File(buf, filename=fname))
             except Exception as e:
                 log.error(f"Kart üretimi başarısız: {e}", exc_info=True)
-                dosya = None
-
-            if dosya:
-                # Plain file — embed yok, kart tam boyut görünür
-                await interaction.followup.send(file=dosya)
-            else:
-                # Görsel üretilemezse sade embed fallback
-                rozet_listesi = await database.get_rozet_listesi(hedef.id)
                 embed = discord.Embed(
                     title=f"{hedef.display_name} — Profil",
                     color=int(renk, 16) if renk else 0x2b2d31,
@@ -161,13 +193,6 @@ class ProfilCog(commands.Cog):
                         f"**Sıralama:** #{sira:,}"
                     ),
                 )
-                if rozet_listesi:
-                    tum = [r["isim"] for r in _tum_rozetler() if r["id"] in rozet_listesi]
-                    embed.add_field(
-                        name=f"🏅 Rozetler ({len(tum)})",
-                        value="\n".join(f"🏅 {n}" for n in tum[:10]),
-                        inline=False,
-                    )
                 await interaction.followup.send(embed=embed)
 
         except Exception as e:
@@ -191,31 +216,24 @@ class ProfilCog(commands.Cog):
     @app_commands.command(name="arka-plan", description="Profil kartı arka planını değiştir.")
     async def arka_plan(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        uid   = interaction.user.id
-        kayit = await database.ensure_user(uid, interaction.user.display_name)
-        bakiye = kayit["bakiye"]
+        uid    = interaction.user.id
+        kayit  = await database.ensure_user(uid, interaction.user.display_name)
+        coins  = kayit["bakiye"]
+        gems   = await database.get_gem_bakiye(uid)
         mevcut = kayit["profil_arka_plan"] or "varsayilan"
 
         embed = discord.Embed(
             title="🖼️ Profil Arka Planı",
             description=(
-                f"Arka plan profil kartına yansır.\n"
-                f"{M2B} Bakiyen: **{bakiye:,} Coin**\n"
-                f"Mevcut: **{next((a['isim'] for a in PROFIL_ARKA_PLANLAR if a['id'] == mevcut), mevcut)}**"
+                "Mağazadaki içerikleri satın alarak profilini özelleştirebilirsin.\n"
+                "Hareketli ve Hareketsiz arka planlar için aşağıdaki menüyü kullan.\n\n"
+                f"{M2B} Bakiye: **{coins:,} Coin** · {GEM} **{gems} Gem**\n"
+                f"Aktif: **{_arka_plan_isim(mevcut)}**"
             ),
             color=0x7B2FBE,
         )
-        for ap in PROFIL_ARKA_PLANLAR:
-            aktif  = " ✅" if ap["id"] == mevcut else ""
-            fiyat  = "Ücretsiz" if ap["fiyat"] == 0 else f"{ap['fiyat']:,} {M2B}"
-            kilit  = "" if bakiye >= ap["fiyat"] else " 🔒"
-            embed.add_field(
-                name=f"{ap['emoji']} {ap['isim']}{aktif}",
-                value=f"{fiyat}{kilit}",
-                inline=True,
-            )
 
-        view = ArkaPlanView(uid, bakiye, mevcut)
+        view = ArkaPlanView(uid, coins, gems, mevcut)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     # ── /rozet-sec ─────────────────────────────────────────────────────────────
@@ -227,7 +245,8 @@ class ProfilCog(commands.Cog):
             sahip = await database.get_rozet_listesi(interaction.user.id)
             if not sahip:
                 await interaction.followup.send(
-                    "Henüz rozet sahibi değilsin! `/market` → Rozet Mağazası'ndan satın alabilirsin.", ephemeral=True
+                    "Henüz rozet sahibi değilsin! `/market` → Rozet Mağazası'ndan satın alabilirsin.",
+                    ephemeral=True,
                 )
                 return
             options = [
@@ -244,24 +263,46 @@ class ProfilCog(commands.Cog):
             await interaction.followup.send("Bir hata oluştu.", ephemeral=True)
 
 
+# ── UI Bileşenleri ────────────────────────────────────────────────────────────
+
+def _ap_option(ap: dict, mevcut: str, coins: int, gems: int) -> discord.SelectOption:
+    """Bir arka plan için SelectOption üretir, fiyat ve kilit bilgisini ekler."""
+    aktif    = ap["id"] == mevcut
+    is_gem   = ap.get("para_birimi") == "gem"
+    birim    = "Gem" if is_gem else "Coin"
+    kilitli  = not aktif and (gems < ap["fiyat"] if is_gem else coins < ap["fiyat"])
+
+    if ap["fiyat"] == 0:
+        fiyat_txt = "Ücretsiz"
+    else:
+        fiyat_txt = f"{ap['fiyat']} {birim}"
+    if kilitli:
+        fiyat_txt += " — Yetersiz"
+
+    return discord.SelectOption(
+        label=(f"✅ {ap['isim']}" if aktif else ap["isim"])[:100],
+        description=fiyat_txt[:100],
+        value=ap["id"],
+        emoji=ap["emoji"],
+        default=aktif,
+    )
+
+
 class ArkaPlanSelect(discord.ui.Select):
-    def __init__(self, discord_id: int, bakiye: int, mevcut: str):
+    """Coin veya Gem fiyatlı arka planları tek bir Select ile yönetir."""
+
+    def __init__(
+        self,
+        discord_id:   int,
+        coins:        int,
+        gems:         int,
+        mevcut:       str,
+        arka_planlar: list,
+        placeholder:  str,
+    ):
         self.discord_id = discord_id
-        options = []
-        for ap in PROFIL_ARKA_PLANLAR:
-            aktif = ap["id"] == mevcut
-            fiyat_txt = "Ücretsiz" if ap["fiyat"] == 0 else f"{ap['fiyat']:,} Coin"
-            if bakiye < ap["fiyat"] and not aktif:
-                fiyat_txt += " — Yetersiz bakiye"
-            label = f"{'✅ ' if aktif else ''}{ap['isim']}"
-            options.append(discord.SelectOption(
-                label=label[:100],
-                description=fiyat_txt,
-                value=ap["id"],
-                emoji=ap["emoji"],
-                default=aktif,
-            ))
-        super().__init__(placeholder="Arka plan seç...", options=options[:25])
+        options = [_ap_option(ap, mevcut, coins, gems) for ap in arka_planlar]
+        super().__init__(placeholder=placeholder, options=options[:25])
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.discord_id:
@@ -269,30 +310,36 @@ class ArkaPlanSelect(discord.ui.Select):
             return
 
         secim = self.values[0]
-        ap    = next(a for a in PROFIL_ARKA_PLANLAR if a["id"] == secim)
+        ap    = _TUM_AP[secim]
         await interaction.response.defer(ephemeral=True)
 
         if ap["fiyat"] > 0:
-            ok = await database.remove_coins(
-                self.discord_id, ap["fiyat"], aciklama=f"Arka plan: {ap['isim']}"
-            )
+            ok, kalan = await _satin_al(self.discord_id, ap)
             if not ok:
-                kayit = await database.get_user(self.discord_id)
-                bakiye = kayit["bakiye"] if kayit else 0
+                is_gem = ap.get("para_birimi") == "gem"
+                birim  = "Gem" if is_gem else "Coin"
                 await interaction.followup.send(
-                    f"{FAIL} Yetersiz coin!\nGerekli: **{ap['fiyat']:,}** — Bakiyen: **{bakiye:,}**",
+                    f"{FAIL} Yetersiz {birim}!\n"
+                    f"Gerekli: **{ap['fiyat']} {birim}** — Bakiyen: **{kalan} {birim}**",
                     ephemeral=True,
                 )
                 return
 
         await database.update_profil(self.discord_id, profil_arka_plan=secim)
 
+        if ap["fiyat"] > 0:
+            is_gem   = ap.get("para_birimi") == "gem"
+            sembol   = GEM if is_gem else M2B
+            birim    = "Gem" if is_gem else "Coin"
+            para_str = f"\n{sembol} **{ap['fiyat']} {birim}** harcandı."
+        else:
+            para_str = ""
+
         embed = discord.Embed(
             title=f"{OK} Arka Plan Güncellendi!",
             description=(
-                f"{ap['emoji']} **{ap['isim']}** seçildi."
-                + (f"\n{M2B} **{ap['fiyat']:,} Coin** harcandı." if ap["fiyat"] > 0 else "")
-                + "\n\n`/profil` ile kontrol edebilirsin."
+                f"{ap['emoji']} **{ap['isim']}** seçildi.{para_str}\n\n"
+                "`/profil` ile kontrol edebilirsin."
             ),
             color=int(ap["renk"], 16),
         )
@@ -300,9 +347,18 @@ class ArkaPlanSelect(discord.ui.Select):
 
 
 class ArkaPlanView(discord.ui.View):
-    def __init__(self, discord_id: int, bakiye: int, mevcut: str):
+    def __init__(self, discord_id: int, coins: int, gems: int, mevcut: str):
         super().__init__(timeout=120)
-        self.add_item(ArkaPlanSelect(discord_id, bakiye, mevcut))
+        self.add_item(ArkaPlanSelect(
+            discord_id, coins, gems, mevcut,
+            PROFIL_ARKA_PLANLAR_STATIK,
+            "Hareketsiz Arka Plan seç...",
+        ))
+        self.add_item(ArkaPlanSelect(
+            discord_id, coins, gems, mevcut,
+            PROFIL_ARKA_PLANLAR_HAREKETLI,
+            "Hareketli Arka Plan seç...",
+        ))
 
 
 class RozetSecView(discord.ui.View):
@@ -322,10 +378,9 @@ class RozetSecSecim(discord.ui.Select):
             return
         await interaction.response.defer(ephemeral=True)
         await database.set_aktif_rozet(interaction.user.id, self.values[0])
-        rozet = next((r for r in OZEL_ROZETLER if r["id"] == self.values[0]), None)
-        await interaction.followup.send(
-            f"✅ **{rozet['isim']}** aktif rozet olarak seçildi!", ephemeral=True,
-        )
+        rozet = next((r for r in _tum_rozetler() if r["id"] == self.values[0]), None)
+        isim  = rozet["isim"] if rozet else self.values[0]
+        await interaction.followup.send(f"✅ **{isim}** aktif rozet olarak seçildi!", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
