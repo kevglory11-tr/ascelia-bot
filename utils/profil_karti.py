@@ -4,14 +4,18 @@ GIF arka plan desteği: .gif uzantılı banner → animasyonlu GIF çıktı.
 """
 
 import io
+import logging
 from io import BytesIO
 from pathlib import Path
 
 import aiohttp
 from PIL import Image, ImageDraw, ImageFont
 
-_CARD1 = Path(__file__).parent.parent / "assets" / "card1"
-_FONT  = str(_CARD1 / "levelfont.otf")
+_CARD1  = Path(__file__).parent.parent / "assets" / "card1"
+_ASSETS = Path(__file__).parent.parent
+_FONT   = str(_CARD1 / "levelfont.otf")
+
+log = logging.getLogger("profil_karti")
 
 
 def _fmt(n: int) -> str:
@@ -33,33 +37,36 @@ async def _fetch(url: str) -> Image.Image:
     raise ValueError(f"Gorsel indirilemedi: {url}")
 
 
+def _resolve_path(path: str) -> Path:
+    """Relative path'i proje kökünden mutlak yap."""
+    p = Path(path)
+    return p if p.is_absolute() else _ASSETS / path
+
+
 def _load_gif_frames(path: str) -> list[Image.Image]:
     """GIF'ten tüm frame'leri RGB olarak döndür."""
     frames = []
-    with Image.open(path) as gif:
-        for i in range(getattr(gif, "n_frames", 1)):
+    resolved = _resolve_path(path)
+    log.info(f"GIF yukleniyor: {resolved} (mevcut: {resolved.exists()})")
+    with Image.open(resolved) as gif:
+        n = getattr(gif, "n_frames", 1)
+        log.info(f"GIF frame sayisi: {n}")
+        for i in range(n):
             gif.seek(i)
             frames.append(gif.convert("RGB").copy())
     return frames
 
 
 def _build_static_layers(
-    kullanici_adi: str,
     level: int,
     exp: int,
     gereken_exp: int,
     avatar: Image.Image,
-) -> tuple[Image.Image, Image.Image, Image.Image]:
-    """
-    Arka plandan bağımsız katmanları hazırla.
-    Dönen değerler: (overlay, xp_bar_im, av_masked, mask, curved)
-    Ama tek seferlik hazırlık için composite tuple dönüyoruz.
-    """
+):
     overlay  = Image.open(_CARD1 / "overlay1.png")
     mask_img = Image.open(_CARD1 / "mask_circle.jpg").convert("L").resize((170, 170))
     curved   = Image.open(_CARD1 / "curvedoverlay.png").convert("L")
 
-    # XP bar
     bar_exp = max((exp / gereken_exp) * 420 if gereken_exp else 0, 50)
     bar_im  = Image.new("RGB", (490, 51), (0, 0, 0))
     bd      = ImageDraw.Draw(bar_im, "RGBA")
@@ -67,7 +74,6 @@ def _build_static_layers(
     if exp != 0:
         bd.rounded_rectangle((0, 0, int(bar_exp), 50), 30, fill=(255, 255, 255, 255))
 
-    # Avatar (masked)
     av = Image.new("RGB", avatar.size, (0, 0, 0))
     try:
         av.paste(avatar, mask=avatar.convert("RGBA").split()[3])
@@ -91,7 +97,7 @@ def _composite_frame(
     f40: ImageFont.FreeTypeFont,
     f30: ImageFont.FreeTypeFont,
 ) -> Image.Image:
-    """Tek bir arka plan frame'i üzerine tüm kartı çiz, RGBA döndür."""
+    """Tek bir arka plan frame'i üzerine kartı çiz, RGB döndür (GIF uyumlu)."""
     TEXT = (255, 255, 255)
 
     canvas = Image.new("RGBA", overlay.size)
@@ -116,9 +122,15 @@ def _composite_frame(
 
     canvas.paste(av, (13, 65), mask_img)
 
-    final = Image.new("RGBA", canvas.size)
-    final.paste(canvas, (0, 0), curved)
-    return final.resize((505, 259), Image.LANCZOS)
+    # curved overlay uygula → RGBA
+    final_rgba = Image.new("RGBA", canvas.size)
+    final_rgba.paste(canvas, (0, 0), curved)
+    final_rgba = final_rgba.resize((505, 259), Image.LANCZOS)
+
+    # GIF için RGBA → RGB (siyah arka plan üzerine alpha composit)
+    rgb = Image.new("RGB", final_rgba.size, (30, 30, 50))
+    rgb.paste(final_rgba, mask=final_rgba.split()[3])
+    return rgb
 
 
 async def profil_karti_olustur(
@@ -133,43 +145,47 @@ async def profil_karti_olustur(
     arka_plan_url: str | None,
     renk_hex:      str = "2b2d31",
     bio:           str | None = None,
-) -> io.BytesIO:
+) -> tuple[io.BytesIO, bool]:
 
     avatar = await _fetch(avatar_url)
     avatar = avatar.resize((170, 170))
 
     overlay, bar_im, av, mask_img, curved = _build_static_layers(
-        kullanici_adi, level, exp, gereken_exp, avatar
+        level, exp, gereken_exp, avatar
     )
     f40 = ImageFont.truetype(_FONT, 40)
     f30 = ImageFont.truetype(_FONT, 30)
 
     # GIF arka plan → animasyonlu çıktı
-    is_gif = arka_plan_url and not arka_plan_url.startswith("http") and arka_plan_url.endswith(".gif")
+    is_gif = (
+        arka_plan_url
+        and not arka_plan_url.startswith("http")
+        and arka_plan_url.endswith(".gif")
+    )
 
     if is_gif:
         try:
             gif_frames = _load_gif_frames(arka_plan_url)
-        except Exception:
-            gif_frames = []
-
-        if gif_frames:
-            card_frames = [
-                _composite_frame(f, overlay, bar_im, av, mask_img, curved,
-                                 kullanici_adi, level, exp, gereken_exp, f40, f30)
-                for f in gif_frames
-            ]
-            buf = io.BytesIO()
-            card_frames[0].save(
-                buf, "GIF",
-                save_all=True,
-                append_images=card_frames[1:],
-                loop=0,
-                duration=83,
-                optimize=False,
-            )
-            buf.seek(0)
-            return buf, True   # (buffer, is_animated)
+            if gif_frames:
+                card_frames = [
+                    _composite_frame(f, overlay, bar_im, av, mask_img, curved,
+                                     kullanici_adi, level, exp, gereken_exp, f40, f30)
+                    for f in gif_frames
+                ]
+                buf = io.BytesIO()
+                card_frames[0].save(
+                    buf, "GIF",
+                    save_all=True,
+                    append_images=card_frames[1:],
+                    loop=0,
+                    duration=83,
+                    optimize=False,
+                )
+                buf.seek(0)
+                log.info(f"Animasyonlu GIF uretildi: {len(card_frames)} frame, {buf.getbuffer().nbytes} byte")
+                return buf, True
+        except Exception as e:
+            log.error(f"GIF kart uretimi basarisiz: {e}", exc_info=True)
 
     # Statik arka plan
     if arka_plan_url:
@@ -177,7 +193,7 @@ async def profil_karti_olustur(
             if arka_plan_url.startswith("http"):
                 fetched = await _fetch(arka_plan_url)
             else:
-                fetched = Image.open(arka_plan_url)
+                fetched = Image.open(_resolve_path(arka_plan_url))
             if fetched.width < 100 or fetched.height < 50:
                 raise ValueError("Gecersiz gorsel")
             bg = fetched.convert("RGB").resize((638, 159))
@@ -186,13 +202,13 @@ async def profil_karti_olustur(
     else:
         bg = _solid(renk_hex)
 
-    final = _composite_frame(bg, overlay, bar_im, av, mask_img, curved,
-                              kullanici_adi, level, exp, gereken_exp, f40, f30)
+    final_rgb = _composite_frame(bg, overlay, bar_im, av, mask_img, curved,
+                                 kullanici_adi, level, exp, gereken_exp, f40, f30)
 
     buf = io.BytesIO()
-    final.save(buf, "PNG")
+    final_rgb.save(buf, "PNG")
     buf.seek(0)
-    return buf, False   # (buffer, is_animated)
+    return buf, False
 
 
 def _solid(renk_hex: str) -> Image.Image:
