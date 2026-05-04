@@ -43,6 +43,8 @@ COGS = [
     "cogs.referans",
     # ── Ticket komutları ─────────────────────────────────────
     "cogs.ticket_komutlar",
+    # ── Profil ───────────────────────────────────────────────
+    "cogs.profil",
     # ── Sistem ───────────────────────────────────────────────
     "cogs.yedek",
 ]
