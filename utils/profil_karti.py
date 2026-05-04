@@ -219,7 +219,7 @@ async def profil_karti_olustur(
         and not arka_plan_url.startswith("http")
         and arka_plan_url.endswith(".gif")
     )
-    is_avatar_gif = avatar_url.endswith(".gif")
+    is_avatar_gif = avatar_url.split("?")[0].endswith(".gif")
 
     overlay, bar_im, mask_img, curved = _build_card_base(level, exp, gereken_exp)
     f40 = ImageFont.truetype(_FONT, 40)
