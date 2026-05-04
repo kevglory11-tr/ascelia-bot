@@ -1,9 +1,8 @@
 """
-utils/profil_karti.py — Card1 stili (DiscordLevelingCard referans).
+utils/profil_karti.py — Card1 (DiscordLevelingCard, birebir).
 """
 
 import io
-import os
 from io import BytesIO
 from pathlib import Path
 
@@ -46,83 +45,55 @@ async def profil_karti_olustur(
     bio:           str | None = None,
 ) -> io.BytesIO:
 
-    # ── Avatar indir ────────────────────────────────────────
+    # Avatar
     avatar = await _fetch(avatar_url)
     avatar = avatar.resize((170, 170))
 
-    # ── Arka plan ───────────────────────────────────────────
+    # Arka plan
     overlay = Image.open(_CARD1 / "overlay1.png")
     canvas  = Image.new("RGBA", overlay.size)
 
     if arka_plan_url:
         try:
-            bg_img = await _fetch(arka_plan_url)
-            bg_img = bg_img.resize((638, 159))
+            bg = (await _fetch(arka_plan_url)).resize((638, 159))
         except Exception:
-            bg_img = _solid_bg(renk_hex)
+            bg = _solid(renk_hex)
     else:
-        bg_img = _solid_bg(renk_hex)
+        bg = _solid(renk_hex)
 
-    canvas.paste(bg_img, (0, 0))
+    canvas.paste(bg, (0, 0))
     canvas = canvas.resize(overlay.size)
     canvas.paste(overlay, (0, 0), overlay)
 
     draw = ImageDraw.Draw(canvas)
-
-    # ── Yazı rengi ──────────────────────────────────────────
+    f40  = ImageFont.truetype(_FONT, 40)
+    f30  = ImageFont.truetype(_FONT, 30)
     TEXT = (255, 255, 255)
 
-    # ── Kullanıcı adı ───────────────────────────────────────
-    f40 = ImageFont.truetype(_FONT, 40)
-    f30 = ImageFont.truetype(_FONT, 30)
-    f22 = ImageFont.truetype(_FONT, 22)
-    f18 = ImageFont.truetype(_FONT, 18)
+    # Kullanıcı adı
+    draw.text((205, (327 / 2) + 20), kullanici_adi[:20],
+              font=f40, fill=TEXT, stroke_width=1, stroke_fill=(0, 0, 0))
 
-    name_y = (327 / 2) + 20  # ~183
-    draw.text((205, name_y), kullanici_adi[:20], font=f40,
-              fill=TEXT, stroke_width=1, stroke_fill=(0, 0, 0))
-
-    # Bio (kullanıcı adının altında)
-    next_y = name_y + 46
-    if bio:
-        draw.text((205, next_y), bio[:36], font=f18, fill=(220, 200, 255, 200))
-        next_y += 24
-
-    # Aktif rozet
-    if aktif_rozet:
-        draw.text((205, next_y), f"✦ {aktif_rozet[:30]}", font=f18,
-                  fill=(200, 160, 255, 220))
-
-    # ── XP bar ──────────────────────────────────────────────
-    bar_exp = (exp / gereken_exp) * 420 if gereken_exp else 0
-    if bar_exp < 50:
-        bar_exp = 50
-
-    bar_im   = Image.new("RGB", (490, 51), (0, 0, 0))
-    bar_draw = ImageDraw.Draw(bar_im, "RGBA")
-    bar_draw.rounded_rectangle((0, 0, 420, 50), 30, fill=(255, 255, 255, 50))
+    # XP bar
+    bar_exp = max((exp / gereken_exp) * 420 if gereken_exp else 0, 50)
+    bar_im  = Image.new("RGB", (490, 51), (0, 0, 0))
+    bd      = ImageDraw.Draw(bar_im, "RGBA")
+    bd.rounded_rectangle((0, 0, 420, 50), 30, fill=(255, 255, 255, 50))
     if exp != 0:
-        bar_draw.rounded_rectangle((0, 0, int(bar_exp), 50), 30,
-                                   fill=(147, 51, 234, 255))
+        bd.rounded_rectangle((0, 0, int(bar_exp), 50), 30, fill=(147, 51, 234, 255))
     canvas.paste(bar_im, (190, 235))
 
-    # ── Level + XP metin ────────────────────────────────────
-    level_y = (327 / 2) + 125  # ~288
-    draw.text((197, level_y), f"LEVEL - {_fmt(level)}", font=f30,
-              fill=TEXT, stroke_width=1, stroke_fill=(0, 0, 0))
+    # Level + XP metin
+    level_y = (327 / 2) + 125
+    draw.text((197, level_y), f"LEVEL - {_fmt(level)}",
+              font=f30, fill=TEXT, stroke_width=1, stroke_fill=(0, 0, 0))
 
     xp_str = f"{_fmt(exp)}/{_fmt(gereken_exp)}"
     xp_w   = draw.textlength(xp_str, font=f30)
-    draw.text((638 - xp_w - 50, level_y), xp_str, font=f30,
-              fill=TEXT, stroke_width=1, stroke_fill=(0, 0, 0))
+    draw.text((638 - xp_w - 50, level_y), xp_str,
+              font=f30, fill=TEXT, stroke_width=1, stroke_fill=(0, 0, 0))
 
-    # ── Rank + Coins (sağ alt köşe) ─────────────────────────
-    extra = f"#{siralama:,}  •  {_fmt(bakiye)} coin"
-    ex_w  = draw.textlength(extra, font=f22)
-    draw.text((638 - ex_w - 20, level_y + 36), extra, font=f22,
-              fill=(220, 210, 255, 200))
-
-    # ── Avatar yapıştır ─────────────────────────────────────
+    # Avatar
     mask = Image.open(_CARD1 / "mask_circle.jpg").convert("L").resize((170, 170))
     av   = Image.new("RGB", avatar.size, (0, 0, 0))
     try:
@@ -131,7 +102,7 @@ async def profil_karti_olustur(
         av.paste(avatar, (0, 0))
     canvas.paste(av, (13, 65), mask)
 
-    # ── Curved overlay ──────────────────────────────────────
+    # Curved overlay
     curved = Image.open(_CARD1 / "curvedoverlay.png").convert("L")
     final  = Image.new("RGBA", canvas.size)
     final.paste(canvas, (0, 0), curved)
@@ -143,7 +114,7 @@ async def profil_karti_olustur(
     return buf
 
 
-def _solid_bg(renk_hex: str) -> Image.Image:
+def _solid(renk_hex: str) -> Image.Image:
     try:
         r, g, b = (int(renk_hex[i:i+2], 16) for i in (0, 2, 4))
     except Exception:
