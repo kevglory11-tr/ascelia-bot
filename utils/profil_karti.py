@@ -19,7 +19,7 @@ _FONT   = str(_CARD1 / "levelfont.otf")
 log = logging.getLogger("profil_karti")
 
 _GIF_MAX_FRAMES = 24
-_GIF_FRAME_MS   = 83   # ~12 fps
+_GIF_FRAME_MS   = 150  # ~6.7 fps
 
 
 # ── Yardımcı fonksiyonlar ─────────────────────────────────────────────────────
