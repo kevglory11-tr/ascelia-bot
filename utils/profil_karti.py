@@ -1,222 +1,195 @@
-"""
-utils/profil_karti.py — Discord level card generator.
-card2 / card3 layout from DiscordLevelingCard, adapted for Ascelia.
-
-card2: solid dark panel background
-card3: custom image background + semi-transparent overlay
-
-Assets: assets/fonts/levelfont.otf, assets/fonts/curveborder.png
+﻿"""
+utils/profil_karti.py — Dinamik profil kartı üretici (Card1 stili).
 """
 
-import asyncio
 import io
 import os
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-import aiohttp
-from PIL import Image, ImageDraw, ImageFont
+# Font yükleme
 
-# ── Dimensions ────────────────────────────────────────────────────────────────
-OUT_W, OUT_H = 1000, 333
+_ASSETS = os.path.join(os.path.dirname(__file__), "..", "assets")
+_BUNDLED_FONT = os.path.join(_ASSETS, "font.ttf")
 
-# ── Layout (px) ───────────────────────────────────────────────────────────────
-INNER_X, INNER_Y = 25, 25
-INNER_W, INNER_H = 950, 283
-AV_SIZE          = 260
-AV_X, AV_Y       = 53, 36
-TEXT_X           = 330    # left edge of text area
-TEXT_R           = 950    # right edge of text area
+_FONT_KALIN = [
+    _BUNDLED_FONT,
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+]
+_FONT_NORMAL = [
+    _BUNDLED_FONT,
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+]
 
-# ── Assets ────────────────────────────────────────────────────────────────────
-_ASSETS     = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "assets", "fonts"))
-_FONT_PATH  = os.path.join(_ASSETS, "levelfont.otf")
-_CURVE_MASK = os.path.join(_ASSETS, "curveborder.png")
+def _font(boyut, kalin=True):
+    for yol in (_FONT_KALIN if kalin else _FONT_NORMAL):
+        if os.path.exists(yol):
+            try:
+                return ImageFont.truetype(yol, boyut)
+            except Exception:
+                continue
+    return ImageFont.load_default()
 
 
-# ── Font ─────────────────────────────────────────────────────────────────────
+def _sayi_fmt(n):
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.1f}K"
+    return str(n)
 
-def _font(size: int) -> ImageFont.FreeTypeFont:
+
+def _daire_maske(boyut):
+    m = Image.new("L", (boyut, boyut), 0)
+    ImageDraw.Draw(m).ellipse((0, 0, boyut - 1, boyut - 1), fill=255)
+    return m
+
+
+def _yuvarlik_maske(w, h, r):
+    m = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(m).rounded_rectangle((0, 0, w - 1, h - 1), radius=r, fill=255)
+    return m
+
+
+async def _gorsel_indir(url, boyut):
+    import aiohttp
     try:
-        return ImageFont.truetype(_FONT_PATH, size)
-    except Exception:
-        try:
-            return ImageFont.load_default(size=size)
-        except TypeError:
-            return ImageFont.load_default()
-
-
-# ── Colour helpers ────────────────────────────────────────────────────────────
-
-def _parse_hex(h: str) -> tuple[int, int, int]:
-    try:
-        h = h.strip("#")
-        return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    except Exception:
-        return (30, 30, 47)
-
-
-def _accent(hex_color: str) -> tuple[int, int, int]:
-    r, g, b = _parse_hex(hex_color)
-    if max(r, g, b) < 90:
-        f = 200 / max(max(r, g, b), 1)
-        r, g, b = min(int(r * f), 255), min(int(g * f), 255), min(int(b * f), 255)
-    return r, g, b
-
-
-def _bg_dark(hex_color: str) -> tuple[int, int, int]:
-    """Derive a very dark solid color from the accent hex for card2-style background."""
-    r, g, b = _parse_hex(hex_color)
-    return (max(r // 9, 6), max(g // 9, 6), max(b // 8 + 3, 10))
-
-
-# ── Async fetch ───────────────────────────────────────────────────────────────
-
-async def _fetch_image(url: str) -> Image.Image | None:
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
                 if r.status == 200:
-                    return Image.open(io.BytesIO(await r.read())).convert("RGBA")
+                    data = await r.read()
+                    img = Image.open(io.BytesIO(data)).convert("RGBA")
+                    return img.resize(boyut, Image.LANCZOS)
     except Exception:
         pass
     return None
 
 
-# ── Image helpers ─────────────────────────────────────────────────────────────
+W, H    = 800, 280
+AV_SIZE = 190
+AV_X    = 16
+BAR_H   = 44
+RADIUS  = 22
+ACCENT  = (147, 51, 234)
 
-async def load_avatar(url: str, size: int) -> Image.Image:
-    """Download, center-crop to square, resize. Returns RGBA (no mask applied)."""
-    img = await _fetch_image(url)
-    if img is None:
-        return Image.new("RGBA", (size, size), (80, 80, 110, 255))
-    w, h = img.size
-    s    = min(w, h)
-    img  = img.crop(((w - s) // 2, (h - s) // 2, (w + s) // 2, (h + s) // 2))
-    return img.resize((size, size), Image.Resampling.LANCZOS).convert("RGBA")
-
-
-async def process_background(source: str, width: int, height: int) -> Image.Image:
-    """Returns an RGB image at (width × height). Source is a URL or hex string."""
-    if source.startswith(("http://", "https://")):
-        img = await _fetch_image(source)
-        if img is not None:
-            iw, ih = img.size
-            scale  = max(width / iw, height / ih)
-            nw, nh = int(iw * scale) + 1, int(ih * scale) + 1
-            img    = img.resize((nw, nh), Image.Resampling.LANCZOS)
-            left, top = (nw - width) // 2, (nh - height) // 2
-            return img.crop((left, top, left + width, top + height)).convert("RGB")
-    return Image.new("RGB", (width, height), _bg_dark(source))
-
-
-def _apply_inner_panel(bg: Image.Image, image_bg: bool) -> None:
-    """Paste inner panel onto bg in-place."""
-    if image_bg:
-        # card3: semi-transparent dark overlay
-        cut = Image.new("RGBA", (INNER_W, INNER_H), (0, 0, 0, 200))
-        bg.paste(cut, (INNER_X, INNER_Y), cut)
-    else:
-        # card2: solid dark Discord panel
-        bg.paste(Image.new("RGB", (INNER_W, INNER_H), (47, 49, 54)), (INNER_X, INNER_Y))
-
-
-def _paste_avatar(bg: Image.Image, av_img: Image.Image) -> None:
-    """Paste avatar at (AV_X, AV_Y) using curveborder.png as mask."""
-    try:
-        mask = Image.open(_CURVE_MASK).resize((AV_SIZE, AV_SIZE)).convert("L")
-    except Exception:
-        mask = Image.new("L", (AV_SIZE, AV_SIZE), 255)
-
-    frame = Image.new("RGBA", (AV_SIZE, AV_SIZE), (0, 0, 0, 0))
-    try:
-        frame.paste(av_img, mask=av_img.split()[3])
-    except Exception:
-        frame.paste(av_img, (0, 0))
-    bg.paste(frame, (AV_X, AV_Y), mask)
-
-
-# ── Draw helpers ──────────────────────────────────────────────────────────────
-
-def _right(draw: ImageDraw.ImageDraw, text: str, y: int,
-           font: ImageFont.FreeTypeFont, fill=(255, 255, 255)) -> None:
-    w = draw.textlength(text, font=font)
-    draw.text((TEXT_R - w, y), text, font=font, fill=fill,
-              stroke_width=1, stroke_fill=(0, 0, 0))
-
-
-def _left(draw: ImageDraw.ImageDraw, text: str, y: int,
-          font: ImageFont.FreeTypeFont, fill=(255, 255, 255)) -> None:
-    draw.text((TEXT_X, y), text, font=font, fill=fill,
-              stroke_width=1, stroke_fill=(0, 0, 0))
-
-
-# ── XP bar ────────────────────────────────────────────────────────────────────
-
-def draw_xp_bar(bg: Image.Image, x: int, y: int, w: int, h: int,
-                current: int, required: int, accent: tuple) -> None:
-    progress = min(current / max(required, 1), 1.0)
-    fill_w   = max(int(w * progress), h)   # minimum = one radius
-
-    bar = Image.new("RGBA", (w + 1, h + 1), (0, 0, 0, 0))
-    d   = ImageDraw.Draw(bar, "RGBA")
-    d.rounded_rectangle((0, 0, w, h), radius=h // 2, fill=(255, 255, 255, 50))
-    if current > 0:
-        d.rounded_rectangle((0, 0, fill_w, h), radius=h // 2, fill=(*accent, 255))
-    bg.paste(bar, (x, y), bar)
-
-
-# ── Public API ────────────────────────────────────────────────────────────────
 
 async def profil_karti_olustur(
-    kullanici_adi: str,
-    avatar_url:    str,
-    level:         int,
-    exp:           int,
-    gereken_exp:   int,
-    bakiye:        int,
-    siralama:      int,
-    aktif_rozet:   str | None,
-    arka_plan_url: str | None,
-    renk_hex:      str = "2b2d31",
-    bio:           str | None = None,
-) -> io.BytesIO:
-    acc        = _accent(renk_hex)
-    has_img_bg = bool(arka_plan_url)
-    bg_source  = arka_plan_url or f"#{renk_hex}"
+    kullanici_adi,
+    avatar_url,
+    level,
+    exp,
+    gereken_exp,
+    bakiye,
+    siralama,
+    aktif_rozet,
+    arka_plan_url,
+    renk_hex="2b2d31",
+):
+    if arka_plan_url:
+        bg = await _gorsel_indir(arka_plan_url, (W, H))
+    else:
+        bg = None
 
-    # Avatar + background in parallel
-    bg, av_img = await asyncio.gather(
-        process_background(bg_source, OUT_W, OUT_H),
-        load_avatar(avatar_url, AV_SIZE),
-    )
+    if bg is None:
+        try:
+            r, g, b = (int(renk_hex[i:i+2], 16) for i in (0, 2, 4))
+        except Exception:
+            r, g, b = 30, 30, 50
+        bg = Image.new("RGBA", (W, H), (r, g, b, 255))
+    else:
+        bg = bg.convert("RGBA")
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=1))
 
-    _apply_inner_panel(bg, has_img_bg)
-    _paste_avatar(bg, av_img)
+    dark = Image.new("RGBA", (W, H), (0, 0, 0, 140))
+    bg.paste(dark, (0, 0), dark)
 
-    draw = ImageDraw.Draw(bg)
-    fn50 = _font(50)
-    fn38 = _font(38)
-    fn28 = _font(28)
+    kart = bg.copy()
+    draw = ImageDraw.Draw(kart, "RGBA")
 
-    # ── Top-right: LEVEL + RANK ──────────────────────────────
-    _right(draw, f"LEVEL: {level}       RANK: #{siralama}", 35, fn50)
+    panel_w = AV_X + AV_SIZE + 18
+    panel = Image.new("RGBA", (panel_w, H), (0, 0, 0, 90))
+    kart.paste(panel, (0, 0), panel)
+    draw.line([(panel_w, 0), (panel_w, H)], fill=(*ACCENT, 160), width=2)
 
-    # ── Below: COINS ────────────────────────────────────────
-    _right(draw, f"COINS: {bakiye:,}", 95, fn38)
+    av_y = (H - AV_SIZE) // 2
+    avatar = await _gorsel_indir(avatar_url, (AV_SIZE, AV_SIZE))
 
-    # ── Middle: username (left) + XP (right) ────────────────
-    _left(draw,  kullanici_adi[:20], 145, fn50)
-    _right(draw, f"{exp:,}/{gereken_exp:,} XP", 150, fn38)
+    if avatar:
+        avatar = avatar.convert("RGBA")
+        daire  = _daire_maske(AV_SIZE)
+        av_img = Image.new("RGBA", (AV_SIZE, AV_SIZE), (0, 0, 0, 0))
+        av_img.paste(avatar, (0, 0), daire)
+        hk = AV_SIZE + 8
+        halka = Image.new("RGBA", (hk, hk), (0, 0, 0, 0))
+        ImageDraw.Draw(halka).ellipse((0, 0, hk - 1, hk - 1), fill=(*ACCENT, 220))
+        kart.paste(halka, (AV_X - 4, av_y - 4), halka)
+        kart.paste(av_img, (AV_X, av_y), av_img)
+    else:
+        draw.ellipse([AV_X, av_y, AV_X + AV_SIZE, av_y + AV_SIZE], fill=(60, 60, 80, 200))
 
-    # ── Optional: bio or rozet ───────────────────────────────
-    if bio:
-        _left(draw, bio[:60], 203, fn28, fill=(158, 158, 192))
-    elif aktif_rozet:
-        _left(draw, f"🏅 {aktif_rozet[:30]}", 203, fn28, fill=acc)
+    f_buyuk = _font(38, kalin=True)
+    f_orta  = _font(26, kalin=True)
+    f_kucuk = _font(18, kalin=False)
 
-    # ── XP bar ───────────────────────────────────────────────
-    draw_xp_bar(bg, TEXT_X, 235, 619, 50, exp, gereken_exp, acc)
+    text_x = AV_X + AV_SIZE + 28
+
+    draw.text((text_x, 32), kullanici_adi[:22], font=f_buyuk,
+              fill=(255, 255, 255), stroke_width=1, stroke_fill=(0, 0, 0))
+
+    rozet_y = 80
+    if aktif_rozet:
+        draw.text((text_x, rozet_y), f"✦ {aktif_rozet[:30]}",
+                  font=f_kucuk, fill=(200, 160, 255, 220))
+        level_y = rozet_y + 28
+    else:
+        level_y = rozet_y + 4
+
+    draw.text((text_x, level_y), f"LEVEL — {level}", font=f_orta,
+              fill=(255, 255, 255), stroke_width=1, stroke_fill=(0, 0, 0))
+
+    xp_str  = f"{_sayi_fmt(exp)} / {_sayi_fmt(gereken_exp)} XP"
+    xp_bbox = draw.textbbox((0, 0), xp_str, font=f_orta)
+    xp_w    = xp_bbox[2] - xp_bbox[0]
+    draw.text((W - xp_w - 20, level_y), xp_str, font=f_orta,
+              fill=(255, 255, 255), stroke_width=1, stroke_fill=(0, 0, 0))
+
+    bar_x = text_x
+    bar_y = H - BAR_H - 30
+    bar_w = W - text_x - 20
+
+    oran  = min(exp / gereken_exp, 1.0) if gereken_exp else 0
+    dolu  = max(int(bar_w * oran), BAR_H)
+
+    bar_img  = Image.new("RGBA", (bar_w, BAR_H), (0, 0, 0, 0))
+    bar_draw = ImageDraw.Draw(bar_img, "RGBA")
+    bar_draw.rounded_rectangle((0, 0, bar_w - 1, BAR_H - 1),
+                                radius=BAR_H // 2, fill=(255, 255, 255, 45))
+    if exp > 0:
+        bar_draw.rounded_rectangle((0, 0, dolu, BAR_H - 1),
+                                    radius=BAR_H // 2, fill=(*ACCENT, 255))
+    bar_draw.rounded_rectangle((4, 3, max(dolu - 4, 10), BAR_H // 2 - 2),
+                                radius=3, fill=(255, 255, 255, 55))
+    kart.paste(bar_img, (bar_x, bar_y), bar_img)
+
+    alt_y = bar_y + BAR_H + 6
+
+    draw.text((text_x, alt_y), f"#{siralama:,}  RANK",
+              font=f_kucuk, fill=(200, 200, 220, 200))
+
+    coin_str  = f"{bakiye:,} coin"
+    coin_bbox = draw.textbbox((0, 0), coin_str, font=f_kucuk)
+    coin_w    = coin_bbox[2] - coin_bbox[0]
+    draw.text((W - coin_w - 20, alt_y), coin_str,
+              font=f_kucuk, fill=(255, 210, 60, 220))
+
+    maske = _yuvarlik_maske(W, H, RADIUS)
+    sonuc = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    sonuc.paste(kart, (0, 0), maske)
 
     buf = io.BytesIO()
-    bg.convert("RGB").save(buf, format="PNG", optimize=True)
+    sonuc.save(buf, format="PNG", optimize=True)
     buf.seek(0)
     return buf
