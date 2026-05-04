@@ -13,7 +13,14 @@ import random
 import database
 from utils.logger import setup_logger
 from utils.profil_karti import profil_karti_olustur
-from config.coin_settings import OZEL_ROZETLER, PROFIL_ARKA_PLANLAR
+from config.coin_settings import OZEL_ROZETLER, PROFIL_ARKA_PLANLAR, ROZET_MAGAZA
+
+def _tum_rozetler() -> list:
+    return OZEL_ROZETLER + ROZET_MAGAZA
+
+M2B  = "<:m2bcoin:1480481551337783437>"
+OK   = "<a:olumlutick:1478524954688356494>"
+FAIL = "❌"
 
 log = setup_logger("profil")
 
@@ -110,7 +117,7 @@ class ProfilCog(commands.Cog):
 
             aktif_rozet_isim = None
             if kayit["aktif_rozet"]:
-                r = next((r for r in OZEL_ROZETLER if r["id"] == kayit["aktif_rozet"]), None)
+                r = next((r for r in _tum_rozetler() if r["id"] == kayit["aktif_rozet"]), None)
                 if r:
                     aktif_rozet_isim = r["isim"]
 
@@ -130,51 +137,35 @@ class ProfilCog(commands.Cog):
                     aktif_rozet    = aktif_rozet_isim,
                     arka_plan_url  = arka_plan_url,
                     renk_hex       = renk,
+                    bio            = kayit["profil_bio"],
                 )
                 dosya = discord.File(buf, filename="profil.png")
             except Exception as e:
                 log.error(f"Kart üretimi başarısız: {e}", exc_info=True)
                 dosya = None
 
-            # Rozet listesi (embed olarak aşağı ekle)
-            rozet_listesi = await database.get_rozet_listesi(hedef.id)
-            kostumler     = await database.get_costumes(hedef.id)
-
-            embed = discord.Embed(color=int(renk, 16) if renk else 0x2b2d31)
             if dosya:
-                embed.set_image(url="attachment://profil.png")
-
-            if rozet_listesi:
-                tum = [r["isim"] for r in OZEL_ROZETLER if r["id"] in rozet_listesi]
-                satirlar = []
-                toplam   = 0
-                for isim in tum:
-                    satir = f"🏅 {isim}"
-                    if toplam + len(satir) + 1 > 1000:
-                        satirlar.append(f"_...ve {len(tum) - len(satirlar)} tane daha_")
-                        break
-                    satirlar.append(satir)
-                    toplam += len(satir) + 1
-                embed.add_field(
-                    name=f"🏅 Rozetler ({len(tum)}/{len(OZEL_ROZETLER)})",
-                    value="\n".join(satirlar),
-                    inline=False,
-                )
-
-            if kostumler:
-                son3 = [f"{k['costume_name']} `{k['rarity']}`" for k in kostumler[:5]]
-                embed.add_field(
-                    name=f"🎭 Kostümler ({len(kostumler)} adet)",
-                    value="\n".join(son3),
-                    inline=False,
-                )
-
-            if kayit["profil_bio"]:
-                embed.set_footer(text=f"📝 {kayit['profil_bio']}")
-
-            if dosya:
-                await interaction.followup.send(file=dosya, embed=embed)
+                # Plain file — embed yok, kart tam boyut görünür
+                await interaction.followup.send(file=dosya)
             else:
+                # Görsel üretilemezse sade embed fallback
+                rozet_listesi = await database.get_rozet_listesi(hedef.id)
+                embed = discord.Embed(
+                    title=f"{hedef.display_name} — Profil",
+                    color=int(renk, 16) if renk else 0x2b2d31,
+                    description=(
+                        f"**Level:** {level}\n"
+                        f"**Coins:** {bakiye:,}\n"
+                        f"**Sıralama:** #{sira:,}"
+                    ),
+                )
+                if rozet_listesi:
+                    tum = [r["isim"] for r in _tum_rozetler() if r["id"] in rozet_listesi]
+                    embed.add_field(
+                        name=f"🏅 Rozetler ({len(tum)})",
+                        value="\n".join(f"🏅 {n}" for n in tum[:10]),
+                        inline=False,
+                    )
                 await interaction.followup.send(embed=embed)
 
         except Exception as e:
@@ -193,7 +184,39 @@ class ProfilCog(commands.Cog):
         await database.update_profil(interaction.user.id, profil_bio=bio)
         await interaction.response.send_message(f"✅ Bio güncellendi: *{bio}*", ephemeral=True)
 
-    # ── /rozet-sec ────────────────────────────────────────────────────────────
+    # ── /arka-plan ─────────────────────────────────────────────────────────────
+
+    @app_commands.command(name="arka-plan", description="Profil kartı arka planını değiştir.")
+    async def arka_plan(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        uid   = interaction.user.id
+        kayit = await database.ensure_user(uid, interaction.user.display_name)
+        bakiye = kayit["bakiye"]
+        mevcut = kayit["profil_arka_plan"] or "varsayilan"
+
+        embed = discord.Embed(
+            title="🖼️ Profil Arka Planı",
+            description=(
+                f"Arka plan profil kartına yansır.\n"
+                f"{M2B} Bakiyen: **{bakiye:,} Coin**\n"
+                f"Mevcut: **{next((a['isim'] for a in PROFIL_ARKA_PLANLAR if a['id'] == mevcut), mevcut)}**"
+            ),
+            color=0x7B2FBE,
+        )
+        for ap in PROFIL_ARKA_PLANLAR:
+            aktif  = " ✅" if ap["id"] == mevcut else ""
+            fiyat  = "Ücretsiz" if ap["fiyat"] == 0 else f"{ap['fiyat']:,} {M2B}"
+            kilit  = "" if bakiye >= ap["fiyat"] else " 🔒"
+            embed.add_field(
+                name=f"{ap['emoji']} {ap['isim']}{aktif}",
+                value=f"{fiyat}{kilit}",
+                inline=True,
+            )
+
+        view = ArkaPlanView(uid, bakiye, mevcut)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    # ── /rozet-sec ─────────────────────────────────────────────────────────────
 
     @app_commands.command(name="rozet-sec", description="Profilinde gösterilecek aktif rozeti seç.")
     async def rozet_sec(self, interaction: discord.Interaction):
@@ -202,12 +225,12 @@ class ProfilCog(commands.Cog):
             sahip = await database.get_rozet_listesi(interaction.user.id)
             if not sahip:
                 await interaction.followup.send(
-                    "Henüz rozet sahibi değilsin! `/market` → Özel Rozetler.", ephemeral=True
+                    "Henüz rozet sahibi değilsin! `/market` → Rozet Mağazası'ndan satın alabilirsin.", ephemeral=True
                 )
                 return
             options = [
                 discord.SelectOption(label=r["isim"], value=r["id"])
-                for r in OZEL_ROZETLER if r["id"] in sahip
+                for r in _tum_rozetler() if r["id"] in sahip
             ][:25]
             view = RozetSecView(interaction.user.id, options)
             await interaction.followup.send(
@@ -217,6 +240,67 @@ class ProfilCog(commands.Cog):
         except Exception as e:
             log.error(f"rozet-sec hatası: {e}", exc_info=True)
             await interaction.followup.send("Bir hata oluştu.", ephemeral=True)
+
+
+class ArkaPlanSelect(discord.ui.Select):
+    def __init__(self, discord_id: int, bakiye: int, mevcut: str):
+        self.discord_id = discord_id
+        options = []
+        for ap in PROFIL_ARKA_PLANLAR:
+            aktif = ap["id"] == mevcut
+            fiyat_txt = "Ücretsiz" if ap["fiyat"] == 0 else f"{ap['fiyat']:,} Coin"
+            if bakiye < ap["fiyat"] and not aktif:
+                fiyat_txt += " — Yetersiz bakiye"
+            label = f"{'✅ ' if aktif else ''}{ap['isim']}"
+            options.append(discord.SelectOption(
+                label=label[:100],
+                description=fiyat_txt,
+                value=ap["id"],
+                emoji=ap["emoji"],
+                default=aktif,
+            ))
+        super().__init__(placeholder="Arka plan seç...", options=options[:25])
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.discord_id:
+            await interaction.response.send_message("Bu menü sana ait değil!", ephemeral=True)
+            return
+
+        secim = self.values[0]
+        ap    = next(a for a in PROFIL_ARKA_PLANLAR if a["id"] == secim)
+        await interaction.response.defer(ephemeral=True)
+
+        if ap["fiyat"] > 0:
+            ok = await database.remove_coins(
+                self.discord_id, ap["fiyat"], aciklama=f"Arka plan: {ap['isim']}"
+            )
+            if not ok:
+                kayit = await database.get_user(self.discord_id)
+                bakiye = kayit["bakiye"] if kayit else 0
+                await interaction.followup.send(
+                    f"{FAIL} Yetersiz coin!\nGerekli: **{ap['fiyat']:,}** — Bakiyen: **{bakiye:,}**",
+                    ephemeral=True,
+                )
+                return
+
+        await database.update_profil(self.discord_id, profil_arka_plan=secim)
+
+        embed = discord.Embed(
+            title=f"{OK} Arka Plan Güncellendi!",
+            description=(
+                f"{ap['emoji']} **{ap['isim']}** seçildi."
+                + (f"\n{M2B} **{ap['fiyat']:,} Coin** harcandı." if ap["fiyat"] > 0 else "")
+                + "\n\n`/profil` ile kontrol edebilirsin."
+            ),
+            color=int(ap["renk"], 16),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+class ArkaPlanView(discord.ui.View):
+    def __init__(self, discord_id: int, bakiye: int, mevcut: str):
+        super().__init__(timeout=120)
+        self.add_item(ArkaPlanSelect(discord_id, bakiye, mevcut))
 
 
 class RozetSecView(discord.ui.View):

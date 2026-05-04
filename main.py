@@ -47,6 +47,7 @@ COGS = [
     "cogs.profil",
     # ── Sistem ───────────────────────────────────────────────
     "cogs.yedek",
+    "cogs.hatirlatici",
 ]
 
 

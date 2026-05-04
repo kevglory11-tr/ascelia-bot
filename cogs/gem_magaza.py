@@ -100,6 +100,16 @@ PERKLER = {
         "ikon":      "perk_ekstra_saldiri.png",
         "emoji":     "⚔️",
     },
+    "seri_koruma": {
+        "isim":      "Seri Koruma",
+        "aciklama":  "Bir gün giriş kaçırsan bile seriniz sıfırlanmaz. Tek kullanımlık, 7 gün geçerli.",
+        "maliyet":   12,
+        "limit_turu": "haftalik",
+        "sure_gun":  7,
+        "patron":    False,
+        "ikon":      "perk_seri_koruma.png",
+        "emoji":     "🛡️",
+    },
 }
 
 

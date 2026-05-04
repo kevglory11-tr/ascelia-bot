@@ -3,6 +3,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
+from datetime import timezone, timedelta
 
 import database
 from utils.logger import setup_logger
@@ -202,6 +203,124 @@ class AdminCoinCog(commands.Cog):
         log.info(f"Coin sıralaması görüntülendi: {interaction.user} (sayfa {sayfa})")
 
 
+    @app_commands.command(name="sunucu-istatistik", description="[Admin] Sunucu ekonomi ve aktivite istatistiklerini göster.")
+    async def sunucu_istatistik(self, interaction: discord.Interaction):
+        if not _admin_kontrol(interaction):
+            await interaction.response.send_message(f"{FAIL} Bu komutu kullanma yetkin yok!", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        TR = timedelta(hours=3)
+
+        async with database.pool.acquire() as conn:
+            toplam_kullanici  = await conn.fetchval("SELECT COUNT(*) FROM coins")
+            aktif_bugun       = await conn.fetchval(
+                "SELECT COUNT(DISTINCT discord_id) FROM coin_log WHERE zaman >= NOW() - INTERVAL '24 hours'"
+            )
+            aktif_hafta       = await conn.fetchval(
+                "SELECT COUNT(DISTINCT discord_id) FROM coin_log WHERE zaman >= NOW() - INTERVAL '7 days'"
+            )
+            toplam_bakiye     = await conn.fetchval("SELECT COALESCE(SUM(bakiye), 0) FROM coins")
+            toplam_kazanilan  = await conn.fetchval("SELECT COALESCE(SUM(toplam_kazanilan), 0) FROM coins")
+            toplam_gem        = await conn.fetchval("SELECT COALESCE(SUM(miktar), 0) FROM gem_bakiye")
+            gorev_bugun       = await conn.fetchval(
+                "SELECT COUNT(*) FROM gunluk_gorev_log WHERE durum IN ('tamamlandi','onaylandi') AND tarih=$1",
+                (discord.utils.utcnow() + TR).date().isoformat()
+            )
+            gorev_bekliyor    = await conn.fetchval(
+                "SELECT COUNT(*) FROM gunluk_gorev_log WHERE durum='bekliyor'"
+            )
+            patron_bu_hafta   = await conn.fetchval(
+                "SELECT COALESCE(SUM(toplam_hasar), 0) FROM patron_savas WHERE zaman >= NOW() - INTERVAL '7 days'"
+            )
+            patron_katilimci  = await conn.fetchval(
+                "SELECT COUNT(DISTINCT discord_id) FROM patron_savas WHERE zaman >= NOW() - INTERVAL '7 days'"
+            )
+            en_zengin         = await conn.fetch(
+                "SELECT username, bakiye FROM coins ORDER BY bakiye DESC LIMIT 3"
+            )
+            son_coin_log      = await conn.fetch(
+                "SELECT tip, COUNT(*) AS adet, SUM(miktar) AS toplam FROM coin_log "
+                "WHERE zaman >= NOW() - INTERVAL '24 hours' GROUP BY tip"
+            )
+            market_bugun      = await conn.fetchval(
+                "SELECT COUNT(*) FROM market_satin_alma WHERE satin_alindi_at >= NOW() - INTERVAL '24 hours'"
+            )
+            giris_bugun       = await conn.fetchval(
+                "SELECT COUNT(*) FROM coins WHERE son_giris = $1",
+                (discord.utils.utcnow() + TR).date()
+            )
+
+        embed = discord.Embed(
+            title="📊 Sunucu İstatistikleri",
+            color=0x3498DB,
+            timestamp=discord.utils.utcnow(),
+        )
+
+        embed.add_field(
+            name="👥 Kullanıcılar",
+            value=(
+                f"Toplam kayıtlı: **{toplam_kullanici:,}**\n"
+                f"Aktif (24 saat): **{aktif_bugun:,}**\n"
+                f"Aktif (7 gün): **{aktif_hafta:,}**\n"
+                f"Günlük giriş bugün: **{giris_bugun:,}**"
+            ),
+            inline=True,
+        )
+
+        embed.add_field(
+            name=f"{M2B} Ekonomi",
+            value=(
+                f"Toplam dolaşım: **{toplam_bakiye:,}**\n"
+                f"Toplam kazanılan: **{toplam_kazanilan:,}**\n"
+                f"Toplam gem: **{toplam_gem:,} 💎**\n"
+                f"Market işlemi (24s): **{market_bugun:,}**"
+            ),
+            inline=True,
+        )
+
+        kazanc_24s  = next((r["toplam"] for r in son_coin_log if r["tip"] == "kazanc"),  0)
+        harcama_24s = next((r["toplam"] for r in son_coin_log if r["tip"] == "harcama"), 0)
+        embed.add_field(
+            name="💸 Coin Akışı (24 saat)",
+            value=(
+                f"Kazanılan: **+{kazanc_24s:,}**\n"
+                f"Harcanan:  **-{harcama_24s:,}**\n"
+                f"Net: **{kazanc_24s - harcama_24s:+,}**"
+            ),
+            inline=True,
+        )
+
+        embed.add_field(
+            name="📋 Günlük Görev",
+            value=(
+                f"Tamamlanan bugün: **{gorev_bugun:,}**\n"
+                f"Onay bekleyen: **{gorev_bekliyor:,}**"
+            ),
+            inline=True,
+        )
+
+        embed.add_field(
+            name="👹 Patron (7 gün)",
+            value=(
+                f"Toplam hasar: **{patron_bu_hafta:,}**\n"
+                f"Katılımcı: **{patron_katilimci:,}**"
+            ),
+            inline=True,
+        )
+
+        if en_zengin:
+            zengin_txt = "\n".join(
+                f"`{i+1}.` **{r['username']}** — {r['bakiye']:,} {M2B}"
+                for i, r in enumerate(en_zengin)
+            )
+            embed.add_field(name="🏆 En Zengin 3", value=zengin_txt, inline=True)
+
+        embed.set_footer(text=f"İsteyen: {interaction.user.display_name} • TR saatiyle")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        log.info(f"Sunucu istatistikleri görüntülendi: {interaction.user}")
+
+
 class TumCoinSilOnayView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=30)
@@ -219,6 +338,46 @@ class TumCoinSilOnayView(discord.ui.View):
     @discord.ui.button(label="İptal", style=discord.ButtonStyle.secondary)
     async def iptal(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content="❌ İptal edildi.", view=None)
+
+
+    @app_commands.command(name="rozet-ver", description="Kullaniciya ozel rozet ver (Admin).")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(uye="Rozet verilecek kullanici", rozet_id="Rozet ID (orn: vanguard, seri_30)")
+    async def rozet_ver(self, interaction: discord.Interaction, uye: discord.Member, rozet_id: str):
+        await interaction.response.defer(ephemeral=True)
+        if not _admin_kontrol(interaction):
+            await interaction.followup.send(f"{FAIL} Yetki yok!", ephemeral=True)
+            return
+
+        from config.coin_settings import OZEL_ROZETLER
+        rozet = next((r for r in OZEL_ROZETLER if r["id"] == rozet_id), None)
+        if not rozet:
+            gecerli = ", ".join(r["id"] for r in OZEL_ROZETLER)
+            await interaction.followup.send(
+                f"{FAIL} Gecersiz rozet ID!\nGecerli: `{gecerli}`",
+                ephemeral=True,
+            )
+            return
+
+        await database.ensure_user(uye.id, uye.display_name)
+        await database.add_rozet(uye.id, rozet_id)
+
+        embed = discord.Embed(
+            title=f"{OK} Rozet Verildi!",
+            description=f"{uye.mention} → **{rozet['emoji']} {rozet['isim']}**",
+            color=0x2ECC71,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        log.info(f"Rozet verildi: {uye} → {rozet_id}")
+
+        try:
+            await uye.send(
+                f"🏅 **Yeni rozet kazandin!**\n"
+                f"**{rozet['emoji']} {rozet['isim']}**\n"
+                f"`/rozet-sec` ile profilinde aktif edebilirsin."
+            )
+        except Exception:
+            pass
 
 
 async def setup(bot: commands.Bot):
