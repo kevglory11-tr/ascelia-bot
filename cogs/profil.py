@@ -29,17 +29,18 @@ EXP_MESAJ_MAX   = 15
 EXP_COOLDOWN_SN = 60
 
 # Arka plan URL haritası — buraya istediğin oyun görsellerini ekle
+_BANNERS = "assets/banners"
 ARKA_PLAN_URL_MAP: dict[str, str] = {
     "varsayilan": None,
-    "kirmizi":    "https://i.imgur.com/8iMhMaS.png",
-    "mavi":       "https://i.imgur.com/Qzf7OK5.png",
-    "mor":        "https://i.imgur.com/VG2tSXm.png",
-    "altin":      "https://i.imgur.com/nSuDFBv.png",
-    "zumrut":     "https://i.imgur.com/jMhXEqJ.png",
-    "gunes":      "https://i.imgur.com/8iMhMaS.png",
-    "galaksi":    "https://i.imgur.com/Qzf7OK5.png",
-    "ejder":      "https://i.imgur.com/VG2tSXm.png",
-    "efsane":     "https://i.imgur.com/nSuDFBv.png",
+    "kirmizi":    f"{_BANNERS}/kirmizi.jpg",
+    "mavi":       f"{_BANNERS}/mavi.jpg",
+    "mor":        f"{_BANNERS}/mor.jpg",
+    "altin":      f"{_BANNERS}/altin.jpg",
+    "zumrut":     f"{_BANNERS}/zumrut.jpg",
+    "gunes":      f"{_BANNERS}/gunes.jpg",
+    "galaksi":    f"{_BANNERS}/galaksi.jpg",
+    "ejder":      f"{_BANNERS}/ejder.jpg",
+    "efsane":     f"{_BANNERS}/efsane.jpg",
 }
 
 

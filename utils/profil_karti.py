@@ -56,10 +56,13 @@ async def profil_karti_olustur(
 
     if arka_plan_url:
         try:
-            fetched = await _fetch(arka_plan_url)
+            if arka_plan_url.startswith("http"):
+                fetched = await _fetch(arka_plan_url)
+            else:
+                fetched = Image.open(arka_plan_url)
             if fetched.width < 100 or fetched.height < 50:
-                raise ValueError("Gecersiz gorsel boyutu")
-            bg = fetched.resize((638, 159))
+                raise ValueError("Gecersiz gorsel")
+            bg = fetched.convert("RGB").resize((638, 159))
         except Exception:
             bg = _solid(renk_hex)
     else:
