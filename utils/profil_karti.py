@@ -1,40 +1,22 @@
-﻿"""
-utils/profil_karti.py — Dinamik profil kartı üretici (Card1 stili).
+"""
+utils/profil_karti.py — Card1 stili (DiscordLevelingCard referans).
 """
 
 import io
 import os
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from io import BytesIO
+from pathlib import Path
 
-# Font yükleme
+import aiohttp
+from PIL import Image, ImageDraw, ImageFont
 
-_ASSETS = os.path.join(os.path.dirname(__file__), "..", "assets")
-_BUNDLED_FONT = os.path.join(_ASSETS, "font.ttf")
-
-_FONT_KALIN = [
-    _BUNDLED_FONT,
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
-]
-_FONT_NORMAL = [
-    _BUNDLED_FONT,
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-]
-
-def _font(boyut, kalin=True):
-    for yol in (_FONT_KALIN if kalin else _FONT_NORMAL):
-        if os.path.exists(yol):
-            try:
-                return ImageFont.truetype(yol, boyut)
-            except Exception:
-                continue
-    return ImageFont.load_default()
+_CARD1 = Path(__file__).parent.parent / "assets" / "card1"
+_FONT  = str(_CARD1 / "levelfont.otf")
 
 
-def _sayi_fmt(n):
+def _fmt(n: int) -> str:
+    if n >= 1_000_000_000:
+        return f"{n/1_000_000_000:.1f}B"
     if n >= 1_000_000:
         return f"{n/1_000_000:.1f}M"
     if n >= 1_000:
@@ -42,154 +24,128 @@ def _sayi_fmt(n):
     return str(n)
 
 
-def _daire_maske(boyut):
-    m = Image.new("L", (boyut, boyut), 0)
-    ImageDraw.Draw(m).ellipse((0, 0, boyut - 1, boyut - 1), fill=255)
-    return m
-
-
-def _yuvarlik_maske(w, h, r):
-    m = Image.new("L", (w, h), 0)
-    ImageDraw.Draw(m).rounded_rectangle((0, 0, w - 1, h - 1), radius=r, fill=255)
-    return m
-
-
-async def _gorsel_indir(url, boyut):
-    import aiohttp
-    try:
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
-                if r.status == 200:
-                    data = await r.read()
-                    img = Image.open(io.BytesIO(data)).convert("RGBA")
-                    return img.resize(boyut, Image.LANCZOS)
-    except Exception:
-        pass
-    return None
-
-
-W, H    = 800, 280
-AV_SIZE = 190
-AV_X    = 16
-BAR_H   = 44
-RADIUS  = 22
-ACCENT  = (147, 51, 234)
+async def _fetch(url: str) -> Image.Image:
+    async with aiohttp.ClientSession() as s:
+        async with s.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
+            if r.status == 200:
+                return Image.open(BytesIO(await r.read()))
+    raise ValueError(f"Gorsel indirilemedi: {url}")
 
 
 async def profil_karti_olustur(
-    kullanici_adi,
-    avatar_url,
-    level,
-    exp,
-    gereken_exp,
-    bakiye,
-    siralama,
-    aktif_rozet,
-    arka_plan_url,
-    renk_hex="2b2d31",
-):
+    kullanici_adi: str,
+    avatar_url:    str,
+    level:         int,
+    exp:           int,
+    gereken_exp:   int,
+    bakiye:        int,
+    siralama:      int,
+    aktif_rozet:   str | None,
+    arka_plan_url: str | None,
+    renk_hex:      str = "2b2d31",
+    bio:           str | None = None,
+) -> io.BytesIO:
+
+    # ── Avatar indir ────────────────────────────────────────
+    avatar = await _fetch(avatar_url)
+    avatar = avatar.resize((170, 170))
+
+    # ── Arka plan ───────────────────────────────────────────
+    overlay = Image.open(_CARD1 / "overlay1.png")
+    canvas  = Image.new("RGBA", overlay.size)
+
     if arka_plan_url:
-        bg = await _gorsel_indir(arka_plan_url, (W, H))
-    else:
-        bg = None
-
-    if bg is None:
         try:
-            r, g, b = (int(renk_hex[i:i+2], 16) for i in (0, 2, 4))
+            bg_img = await _fetch(arka_plan_url)
+            bg_img = bg_img.resize((638, 159))
         except Exception:
-            r, g, b = 30, 30, 50
-        bg = Image.new("RGBA", (W, H), (r, g, b, 255))
+            bg_img = _solid_bg(renk_hex)
     else:
-        bg = bg.convert("RGBA")
-        bg = bg.filter(ImageFilter.GaussianBlur(radius=1))
+        bg_img = _solid_bg(renk_hex)
 
-    dark = Image.new("RGBA", (W, H), (0, 0, 0, 140))
-    bg.paste(dark, (0, 0), dark)
+    canvas.paste(bg_img, (0, 0))
+    canvas = canvas.resize(overlay.size)
+    canvas.paste(overlay, (0, 0), overlay)
 
-    kart = bg.copy()
-    draw = ImageDraw.Draw(kart, "RGBA")
+    draw = ImageDraw.Draw(canvas)
 
-    panel_w = AV_X + AV_SIZE + 18
-    panel = Image.new("RGBA", (panel_w, H), (0, 0, 0, 90))
-    kart.paste(panel, (0, 0), panel)
-    draw.line([(panel_w, 0), (panel_w, H)], fill=(*ACCENT, 160), width=2)
+    # ── Yazı rengi ──────────────────────────────────────────
+    TEXT = (255, 255, 255)
 
-    av_y = (H - AV_SIZE) // 2
-    avatar = await _gorsel_indir(avatar_url, (AV_SIZE, AV_SIZE))
+    # ── Kullanıcı adı ───────────────────────────────────────
+    f40 = ImageFont.truetype(_FONT, 40)
+    f30 = ImageFont.truetype(_FONT, 30)
+    f22 = ImageFont.truetype(_FONT, 22)
+    f18 = ImageFont.truetype(_FONT, 18)
 
-    if avatar:
-        avatar = avatar.convert("RGBA")
-        daire  = _daire_maske(AV_SIZE)
-        av_img = Image.new("RGBA", (AV_SIZE, AV_SIZE), (0, 0, 0, 0))
-        av_img.paste(avatar, (0, 0), daire)
-        hk = AV_SIZE + 8
-        halka = Image.new("RGBA", (hk, hk), (0, 0, 0, 0))
-        ImageDraw.Draw(halka).ellipse((0, 0, hk - 1, hk - 1), fill=(*ACCENT, 220))
-        kart.paste(halka, (AV_X - 4, av_y - 4), halka)
-        kart.paste(av_img, (AV_X, av_y), av_img)
-    else:
-        draw.ellipse([AV_X, av_y, AV_X + AV_SIZE, av_y + AV_SIZE], fill=(60, 60, 80, 200))
+    name_y = (327 / 2) + 20  # ~183
+    draw.text((205, name_y), kullanici_adi[:20], font=f40,
+              fill=TEXT, stroke_width=1, stroke_fill=(0, 0, 0))
 
-    f_buyuk = _font(38, kalin=True)
-    f_orta  = _font(26, kalin=True)
-    f_kucuk = _font(18, kalin=False)
+    # Bio (kullanıcı adının altında)
+    next_y = name_y + 46
+    if bio:
+        draw.text((205, next_y), bio[:36], font=f18, fill=(220, 200, 255, 200))
+        next_y += 24
 
-    text_x = AV_X + AV_SIZE + 28
-
-    draw.text((text_x, 32), kullanici_adi[:22], font=f_buyuk,
-              fill=(255, 255, 255), stroke_width=1, stroke_fill=(0, 0, 0))
-
-    rozet_y = 80
+    # Aktif rozet
     if aktif_rozet:
-        draw.text((text_x, rozet_y), f"✦ {aktif_rozet[:30]}",
-                  font=f_kucuk, fill=(200, 160, 255, 220))
-        level_y = rozet_y + 28
-    else:
-        level_y = rozet_y + 4
+        draw.text((205, next_y), f"✦ {aktif_rozet[:30]}", font=f18,
+                  fill=(200, 160, 255, 220))
 
-    draw.text((text_x, level_y), f"LEVEL — {level}", font=f_orta,
-              fill=(255, 255, 255), stroke_width=1, stroke_fill=(0, 0, 0))
+    # ── XP bar ──────────────────────────────────────────────
+    bar_exp = (exp / gereken_exp) * 420 if gereken_exp else 0
+    if bar_exp < 50:
+        bar_exp = 50
 
-    xp_str  = f"{_sayi_fmt(exp)} / {_sayi_fmt(gereken_exp)} XP"
-    xp_bbox = draw.textbbox((0, 0), xp_str, font=f_orta)
-    xp_w    = xp_bbox[2] - xp_bbox[0]
-    draw.text((W - xp_w - 20, level_y), xp_str, font=f_orta,
-              fill=(255, 255, 255), stroke_width=1, stroke_fill=(0, 0, 0))
+    bar_im   = Image.new("RGB", (490, 51), (0, 0, 0))
+    bar_draw = ImageDraw.Draw(bar_im, "RGBA")
+    bar_draw.rounded_rectangle((0, 0, 420, 50), 30, fill=(255, 255, 255, 50))
+    if exp != 0:
+        bar_draw.rounded_rectangle((0, 0, int(bar_exp), 50), 30,
+                                   fill=(147, 51, 234, 255))
+    canvas.paste(bar_im, (190, 235))
 
-    bar_x = text_x
-    bar_y = H - BAR_H - 30
-    bar_w = W - text_x - 20
+    # ── Level + XP metin ────────────────────────────────────
+    level_y = (327 / 2) + 125  # ~288
+    draw.text((197, level_y), f"LEVEL - {_fmt(level)}", font=f30,
+              fill=TEXT, stroke_width=1, stroke_fill=(0, 0, 0))
 
-    oran  = min(exp / gereken_exp, 1.0) if gereken_exp else 0
-    dolu  = max(int(bar_w * oran), BAR_H)
+    xp_str = f"{_fmt(exp)}/{_fmt(gereken_exp)}"
+    xp_w   = draw.textlength(xp_str, font=f30)
+    draw.text((638 - xp_w - 50, level_y), xp_str, font=f30,
+              fill=TEXT, stroke_width=1, stroke_fill=(0, 0, 0))
 
-    bar_img  = Image.new("RGBA", (bar_w, BAR_H), (0, 0, 0, 0))
-    bar_draw = ImageDraw.Draw(bar_img, "RGBA")
-    bar_draw.rounded_rectangle((0, 0, bar_w - 1, BAR_H - 1),
-                                radius=BAR_H // 2, fill=(255, 255, 255, 45))
-    if exp > 0:
-        bar_draw.rounded_rectangle((0, 0, dolu, BAR_H - 1),
-                                    radius=BAR_H // 2, fill=(*ACCENT, 255))
-    bar_draw.rounded_rectangle((4, 3, max(dolu - 4, 10), BAR_H // 2 - 2),
-                                radius=3, fill=(255, 255, 255, 55))
-    kart.paste(bar_img, (bar_x, bar_y), bar_img)
+    # ── Rank + Coins (sağ alt köşe) ─────────────────────────
+    extra = f"#{siralama:,}  •  {_fmt(bakiye)} coin"
+    ex_w  = draw.textlength(extra, font=f22)
+    draw.text((638 - ex_w - 20, level_y + 36), extra, font=f22,
+              fill=(220, 210, 255, 200))
 
-    alt_y = bar_y + BAR_H + 6
+    # ── Avatar yapıştır ─────────────────────────────────────
+    mask = Image.open(_CARD1 / "mask_circle.jpg").convert("L").resize((170, 170))
+    av   = Image.new("RGB", avatar.size, (0, 0, 0))
+    try:
+        av.paste(avatar, mask=avatar.convert("RGBA").split()[3])
+    except Exception:
+        av.paste(avatar, (0, 0))
+    canvas.paste(av, (13, 65), mask)
 
-    draw.text((text_x, alt_y), f"#{siralama:,}  RANK",
-              font=f_kucuk, fill=(200, 200, 220, 200))
-
-    coin_str  = f"{bakiye:,} coin"
-    coin_bbox = draw.textbbox((0, 0), coin_str, font=f_kucuk)
-    coin_w    = coin_bbox[2] - coin_bbox[0]
-    draw.text((W - coin_w - 20, alt_y), coin_str,
-              font=f_kucuk, fill=(255, 210, 60, 220))
-
-    maske = _yuvarlik_maske(W, H, RADIUS)
-    sonuc = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    sonuc.paste(kart, (0, 0), maske)
+    # ── Curved overlay ──────────────────────────────────────
+    curved = Image.open(_CARD1 / "curvedoverlay.png").convert("L")
+    final  = Image.new("RGBA", canvas.size)
+    final.paste(canvas, (0, 0), curved)
+    final  = final.resize((505, 259), Image.LANCZOS)
 
     buf = io.BytesIO()
-    sonuc.save(buf, format="PNG", optimize=True)
+    final.save(buf, "PNG")
     buf.seek(0)
     return buf
+
+
+def _solid_bg(renk_hex: str) -> Image.Image:
+    try:
+        r, g, b = (int(renk_hex[i:i+2], 16) for i in (0, 2, 4))
+    except Exception:
+        r, g, b = 30, 30, 50
+    return Image.new("RGB", (638, 159), (r, g, b))
