@@ -24,7 +24,8 @@ def _fmt(n: int) -> str:
 
 
 async def _fetch(url: str) -> Image.Image:
-    async with aiohttp.ClientSession() as s:
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://discord.com"}
+    async with aiohttp.ClientSession(headers=headers) as s:
         async with s.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
             if r.status == 200:
                 return Image.open(BytesIO(await r.read()))
@@ -80,7 +81,7 @@ async def profil_karti_olustur(
     bd      = ImageDraw.Draw(bar_im, "RGBA")
     bd.rounded_rectangle((0, 0, 420, 50), 30, fill=(255, 255, 255, 50))
     if exp != 0:
-        bd.rounded_rectangle((0, 0, int(bar_exp), 50), 30, fill=(147, 51, 234, 255))
+        bd.rounded_rectangle((0, 0, int(bar_exp), 50), 30, fill=(255, 255, 255, 255))
     canvas.paste(bar_im, (190, 235))
 
     # Level + XP metin
