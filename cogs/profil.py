@@ -1,5 +1,5 @@
 """
-cogs/profil.py — /profil, /profil-duzenle, /rozet-sec, /arka-plan komutları.
+cogs/profil.py — /profil, /profil-duzenle, /rozet-sec, /profil-magazasi komutları.
 EXP sistemi (mesaj başına) + dinamik profil kartı görsel üretimi.
 """
 
@@ -21,7 +21,6 @@ from config.coin_settings import (
 
 # ── Sabitler ──────────────────────────────────────────────────────────────────
 
-M2B  = "<:m2bcoin:1480481551337783437>"
 GEM  = "💎"
 OK   = "<a:olumlutick:1478524954688356494>"
 FAIL = "❌"
@@ -34,22 +33,36 @@ EXP_COOLDOWN_SN = 60
 
 _BANNERS = "assets/banners"
 ARKA_PLAN_URL_MAP: dict[str, str | None] = {
+    # aktif arka planlar
     "varsayilan":     None,
-    "kirmizi":        f"{_BANNERS}/kirmizi.jpg",
-    "mavi":           f"{_BANNERS}/mavi.jpg",
-    "mor":            f"{_BANNERS}/mor.gif",
-    "altin":          f"{_BANNERS}/altin.jpg",
-    "zumrut":         f"{_BANNERS}/zumrut.jpg",
-    "gunes":          f"{_BANNERS}/gunes.jpg",
-    "galaksi":        f"{_BANNERS}/galaksi.jpg",
-    "ejder":          f"{_BANNERS}/ejder.jpg",
-    "efsane":         f"{_BANNERS}/efsane.jpg",
     "gojo_statik":    f"{_BANNERS}/mor.jpg",
     "gojo_hareketli": f"{_BANNERS}/mor.gif",
+    # eski renk ID'leri — backward compat, mağazada gösterilmez
+    "mor":    f"{_BANNERS}/mor.gif",
+    "kirmizi": f"{_BANNERS}/kirmizi.jpg",
+    "mavi":    f"{_BANNERS}/mavi.jpg",
+    "altin":   f"{_BANNERS}/altin.jpg",
+    "zumrut":  f"{_BANNERS}/zumrut.jpg",
+    "gunes":   f"{_BANNERS}/gunes.jpg",
+    "galaksi": f"{_BANNERS}/galaksi.jpg",
+    "ejder":   f"{_BANNERS}/ejder.jpg",
+    "efsane":  f"{_BANNERS}/efsane.jpg",
 }
 
-# id → dict araması için hazır harita
 _TUM_AP: dict[str, dict] = {ap["id"]: ap for ap in PROFIL_ARKA_PLANLAR}
+
+# Eski renk ID'leri için fallback renk/isim (mağazada görünmez ama /profil'de kullanılır)
+_LEGACY_AP: dict[str, dict] = {
+    "mor":     {"renk": "6c3483", "isim": "Gojo"},
+    "kirmizi": {"renk": "922b21", "isim": "Kirmizi"},
+    "mavi":    {"renk": "1a5276", "isim": "Mavi"},
+    "altin":   {"renk": "9a7d0a", "isim": "Altin"},
+    "zumrut":  {"renk": "1e8449", "isim": "Zumrut"},
+    "gunes":   {"renk": "ca6f1e", "isim": "Gunes"},
+    "galaksi": {"renk": "4a235a", "isim": "Galaksi"},
+    "ejder":   {"renk": "641e16", "isim": "Ejder"},
+    "efsane":  {"renk": "784212", "isim": "Efsane"},
+}
 
 
 # ── Yardımcı fonksiyonlar ─────────────────────────────────────────────────────
@@ -59,36 +72,75 @@ def _tum_rozetler() -> list:
 
 
 def _arka_plan_renk(ap_id: str) -> str:
-    ap = _TUM_AP.get(ap_id)
-    return ap["renk"] if ap else "2b2d31"
+    if ap := _TUM_AP.get(ap_id):
+        return ap["renk"]
+    if ap := _LEGACY_AP.get(ap_id):
+        return ap["renk"]
+    return "2b2d31"
 
 
 def _arka_plan_isim(ap_id: str) -> str:
-    ap = _TUM_AP.get(ap_id)
-    return ap["isim"] if ap else ap_id
+    if ap := _TUM_AP.get(ap_id):
+        return ap["isim"]
+    if ap := _LEGACY_AP.get(ap_id):
+        return ap["isim"]
+    return "Varsayilan"
 
 
 def _avatar_url(member: discord.Member) -> str:
-    """Animasyonlu avatar varsa GIF URL, yoksa varsayılan URL döndürür."""
     av = member.display_avatar
     if av.is_animated():
         return str(av.replace(format="gif").url)
     return str(av.url)
 
 
-async def _satin_al(discord_id: int, ap: dict) -> tuple[bool, int]:
-    """
-    Arka plan için ödeme alır.
-    Returns (başarılı, kalan_bakiye).
-    """
-    if ap.get("para_birimi") == "gem":
-        ok    = await database.remove_gem(discord_id, ap["fiyat"], tip="arka_plan", aciklama=f"Arka plan: {ap['isim']}")
-        kalan = await database.get_gem_bakiye(discord_id)
+# ── Embed yardımcıları ────────────────────────────────────────────────────────
+
+def _magazasi_embed(gems: int, mevcut: str) -> discord.Embed:
+    return discord.Embed(
+        title="🖼️ Profil Mağazası",
+        description=(
+            "Mağazadaki içerikleri satın alarak profilini özelleştirebilirsin.\n\n"
+            f"{GEM} Bakiye: **{gems} Gem**\n"
+            f"Aktif: **{_arka_plan_isim(mevcut)}**"
+        ),
+        color=0x7B2FBE,
+    )
+
+
+def _kategori_embed(baslik: str, gems: int, mevcut: str) -> discord.Embed:
+    return discord.Embed(
+        title=baslik,
+        description=(
+            f"{GEM} Bakiye: **{gems} Gem**\n"
+            f"Aktif: **{_arka_plan_isim(mevcut)}**"
+        ),
+        color=0x7B2FBE,
+    )
+
+
+# ── SelectOption üretici ──────────────────────────────────────────────────────
+
+def _ap_option(ap: dict, mevcut: str, gems: int, owned: list[str]) -> discord.SelectOption:
+    aktif    = ap["id"] == mevcut
+    is_owned = ap["fiyat"] == 0 or ap["id"] in owned
+
+    if aktif:
+        desc = "✅ Aktif"
+    elif is_owned:
+        desc = "Sahip ✓"
     else:
-        ok    = await database.remove_coins(discord_id, ap["fiyat"], aciklama=f"Arka plan: {ap['isim']}")
-        kayit = await database.get_user(discord_id)
-        kalan = kayit["bakiye"] if kayit else 0
-    return ok, kalan
+        desc = f"{ap['fiyat']} 💎"
+        if gems < ap["fiyat"]:
+            desc += " — Yetersiz"
+
+    return discord.SelectOption(
+        label=(f"✅ {ap['isim']}" if aktif else ap["isim"])[:100],
+        description=desc[:100],
+        value=ap["id"],
+        emoji=ap["emoji"],
+        default=aktif,
+    )
 
 
 # ── Cog ───────────────────────────────────────────────────────────────────────
@@ -211,29 +263,20 @@ class ProfilCog(commands.Cog):
         await database.update_profil(interaction.user.id, profil_bio=bio)
         await interaction.response.send_message(f"✅ Bio güncellendi: *{bio}*", ephemeral=True)
 
-    # ── /arka-plan ─────────────────────────────────────────────────────────────
+    # ── /profil-magazasi ───────────────────────────────────────────────────────
 
-    @app_commands.command(name="arka-plan", description="Profil kartı arka planını değiştir.")
-    async def arka_plan(self, interaction: discord.Interaction):
+    @app_commands.command(name="profil-magazasi", description="Profil arka plan mağazası.")
+    async def profil_magazasi(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         uid    = interaction.user.id
-        kayit  = await database.ensure_user(uid, interaction.user.display_name)
-        coins  = kayit["bakiye"]
+        await database.ensure_user(uid, interaction.user.display_name)
         gems   = await database.get_gem_bakiye(uid)
+        kayit  = await database.get_user(uid)
         mevcut = kayit["profil_arka_plan"] or "varsayilan"
+        owned  = await database.get_sahip_arka_planlar(uid)
 
-        embed = discord.Embed(
-            title="🖼️ Profil Arka Planı",
-            description=(
-                "Mağazadaki içerikleri satın alarak profilini özelleştirebilirsin.\n"
-                "Hareketli ve Hareketsiz arka planlar için aşağıdaki menüyü kullan.\n\n"
-                f"{M2B} Bakiye: **{coins:,} Coin** · {GEM} **{gems} Gem**\n"
-                f"Aktif: **{_arka_plan_isim(mevcut)}**"
-            ),
-            color=0x7B2FBE,
-        )
-
-        view = ArkaPlanView(uid, coins, gems, mevcut)
+        embed = _magazasi_embed(gems, mevcut)
+        view  = ArkaPlanMainView(uid, gems, mevcut, owned)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     # ── /rozet-sec ─────────────────────────────────────────────────────────────
@@ -263,103 +306,128 @@ class ProfilCog(commands.Cog):
             await interaction.followup.send("Bir hata oluştu.", ephemeral=True)
 
 
-# ── UI Bileşenleri ────────────────────────────────────────────────────────────
+# ── Mağaza UI ─────────────────────────────────────────────────────────────────
 
-def _ap_option(ap: dict, mevcut: str, coins: int, gems: int) -> discord.SelectOption:
-    """Bir arka plan için SelectOption üretir, fiyat ve kilit bilgisini ekler."""
-    aktif    = ap["id"] == mevcut
-    is_gem   = ap.get("para_birimi") == "gem"
-    birim    = "Gem" if is_gem else "Coin"
-    kilitli  = not aktif and (gems < ap["fiyat"] if is_gem else coins < ap["fiyat"])
+class ArkaPlanMainView(discord.ui.View):
+    """Ana menü: Normal ve Gifli kategorisi butonları."""
 
-    if ap["fiyat"] == 0:
-        fiyat_txt = "Ücretsiz"
-    else:
-        fiyat_txt = f"{ap['fiyat']} {birim}"
-    if kilitli:
-        fiyat_txt += " — Yetersiz"
-
-    return discord.SelectOption(
-        label=(f"✅ {ap['isim']}" if aktif else ap["isim"])[:100],
-        description=fiyat_txt[:100],
-        value=ap["id"],
-        emoji=ap["emoji"],
-        default=aktif,
-    )
+    def __init__(self, discord_id: int, gems: int, mevcut: str, owned: list[str]):
+        super().__init__(timeout=180)
+        self.add_item(KategoriButton(
+            label="🖼️ Normal Arka Planlar",
+            arka_planlar=PROFIL_ARKA_PLANLAR_STATIK,
+            discord_id=discord_id, gems=gems, mevcut=mevcut, owned=owned,
+        ))
+        self.add_item(KategoriButton(
+            label="✨ Gifli Arka Planlar",
+            arka_planlar=PROFIL_ARKA_PLANLAR_HAREKETLI,
+            discord_id=discord_id, gems=gems, mevcut=mevcut, owned=owned,
+        ))
 
 
-class ArkaPlanSelect(discord.ui.Select):
-    """Coin veya Gem fiyatlı arka planları tek bir Select ile yönetir."""
-
-    def __init__(
-        self,
-        discord_id:   int,
-        coins:        int,
-        gems:         int,
-        mevcut:       str,
-        arka_planlar: list,
-        placeholder:  str,
-    ):
-        self.discord_id = discord_id
-        options = [_ap_option(ap, mevcut, coins, gems) for ap in arka_planlar]
-        super().__init__(placeholder=placeholder, options=options[:25])
+class KategoriButton(discord.ui.Button):
+    def __init__(self, label: str, arka_planlar: list, discord_id: int,
+                 gems: int, mevcut: str, owned: list[str]):
+        super().__init__(label=label, style=discord.ButtonStyle.primary)
+        self.arka_planlar = arka_planlar
+        self.discord_id   = discord_id
+        self.gems         = gems
+        self.mevcut       = mevcut
+        self.owned        = owned
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.discord_id:
             await interaction.response.send_message("Bu menü sana ait değil!", ephemeral=True)
             return
+        embed = _kategori_embed(self.label, self.gems, self.mevcut)
+        view  = ArkaPlanKategoriView(
+            self.arka_planlar, self.label,
+            self.discord_id, self.gems, self.mevcut, self.owned,
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class ArkaPlanKategoriView(discord.ui.View):
+    """Kategori menüsü: Select + Geri butonu."""
+
+    def __init__(self, arka_planlar: list, baslik: str, discord_id: int,
+                 gems: int, mevcut: str, owned: list[str]):
+        super().__init__(timeout=180)
+        self.add_item(ArkaPlanSelect(arka_planlar, baslik, discord_id, gems, mevcut, owned))
+        self.add_item(GeriButton(discord_id, gems, mevcut, owned))
+
+
+class ArkaPlanSelect(discord.ui.Select):
+    def __init__(self, arka_planlar: list, baslik: str, discord_id: int,
+                 gems: int, mevcut: str, owned: list[str]):
+        self.arka_planlar = arka_planlar
+        self.baslik       = baslik
+        self.discord_id   = discord_id
+        self.gems         = gems
+        self.mevcut       = mevcut
+        self.owned        = owned
+        options = [_ap_option(ap, mevcut, gems, owned) for ap in arka_planlar]
+        super().__init__(placeholder="Arka plan seç...", options=options[:25])
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.discord_id:
+            await interaction.response.send_message("Bu sana ait değil!", ephemeral=True)
+            return
 
         secim = self.values[0]
         ap    = _TUM_AP[secim]
-        await interaction.response.defer(ephemeral=True)
+        is_owned = ap["fiyat"] == 0 or secim in self.owned
 
-        if ap["fiyat"] > 0:
-            ok, kalan = await _satin_al(self.discord_id, ap)
+        new_gems  = self.gems
+        new_owned = list(self.owned)
+
+        if not is_owned:
+            ok, new_gems = await _satin_al_gem(self.discord_id, ap)
             if not ok:
-                is_gem = ap.get("para_birimi") == "gem"
-                birim  = "Gem" if is_gem else "Coin"
-                await interaction.followup.send(
-                    f"{FAIL} Yetersiz {birim}!\n"
-                    f"Gerekli: **{ap['fiyat']} {birim}** — Bakiyen: **{kalan} {birim}**",
+                await interaction.response.send_message(
+                    f"{FAIL} Yetersiz Gem!\n"
+                    f"Gerekli: **{ap['fiyat']} {GEM}** — Bakiyen: **{self.gems} {GEM}**",
                     ephemeral=True,
                 )
                 return
+            await database.add_sahip_arka_plan(self.discord_id, secim)
+            new_owned.append(secim)
 
         await database.update_profil(self.discord_id, profil_arka_plan=secim)
 
-        if ap["fiyat"] > 0:
-            is_gem   = ap.get("para_birimi") == "gem"
-            sembol   = GEM if is_gem else M2B
-            birim    = "Gem" if is_gem else "Coin"
-            para_str = f"\n{sembol} **{ap['fiyat']} {birim}** harcandı."
-        else:
-            para_str = ""
-
-        embed = discord.Embed(
-            title=f"{OK} Arka Plan Güncellendi!",
-            description=(
-                f"{ap['emoji']} **{ap['isim']}** seçildi.{para_str}\n\n"
-                "`/profil` ile kontrol edebilirsin."
-            ),
-            color=int(ap["renk"], 16),
+        # Mesajı güncelle (yeni ownership/bakiye yansısın)
+        embed = _kategori_embed(self.baslik, new_gems, secim)
+        view  = ArkaPlanKategoriView(
+            self.arka_planlar, self.baslik,
+            self.discord_id, new_gems, secim, new_owned,
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+        if is_owned:
+            bilgi = f"✅ **{ap['isim']}** aktif arka plan olarak seçildi!"
+        else:
+            bilgi = f"✅ **{ap['isim']}** satın alındı ve aktif edildi! ({ap['fiyat']} {GEM} harcandı)"
+        await interaction.followup.send(bilgi, ephemeral=True)
 
 
-class ArkaPlanView(discord.ui.View):
-    def __init__(self, discord_id: int, coins: int, gems: int, mevcut: str):
-        super().__init__(timeout=120)
-        self.add_item(ArkaPlanSelect(
-            discord_id, coins, gems, mevcut,
-            PROFIL_ARKA_PLANLAR_STATIK,
-            "Hareketsiz Arka Plan seç...",
-        ))
-        self.add_item(ArkaPlanSelect(
-            discord_id, coins, gems, mevcut,
-            PROFIL_ARKA_PLANLAR_HAREKETLI,
-            "Hareketli Arka Plan seç...",
-        ))
+class GeriButton(discord.ui.Button):
+    def __init__(self, discord_id: int, gems: int, mevcut: str, owned: list[str]):
+        super().__init__(label="← Geri", style=discord.ButtonStyle.secondary)
+        self.discord_id = discord_id
+        self.gems       = gems
+        self.mevcut     = mevcut
+        self.owned      = owned
 
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.discord_id:
+            await interaction.response.send_message("Bu menü sana ait değil!", ephemeral=True)
+            return
+        embed = _magazasi_embed(self.gems, self.mevcut)
+        view  = ArkaPlanMainView(self.discord_id, self.gems, self.mevcut, self.owned)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+# ── Rozet UI ─────────────────────────────────────────────────────────────────
 
 class RozetSecView(discord.ui.View):
     def __init__(self, discord_id: int, options: list):
@@ -381,6 +449,14 @@ class RozetSecSecim(discord.ui.Select):
         rozet = next((r for r in _tum_rozetler() if r["id"] == self.values[0]), None)
         isim  = rozet["isim"] if rozet else self.values[0]
         await interaction.followup.send(f"✅ **{isim}** aktif rozet olarak seçildi!", ephemeral=True)
+
+
+# ── Satın alma ────────────────────────────────────────────────────────────────
+
+async def _satin_al_gem(discord_id: int, ap: dict) -> tuple[bool, int]:
+    ok    = await database.remove_gem(discord_id, ap["fiyat"], tip="arka_plan", aciklama=f"Arka plan: {ap['isim']}")
+    kalan = await database.get_gem_bakiye(discord_id)
+    return ok, kalan
 
 
 async def setup(bot: commands.Bot):

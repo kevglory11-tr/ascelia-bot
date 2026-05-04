@@ -268,6 +268,13 @@ async def _migrate() -> None:
         except Exception as e:
             log.debug(f"Migrasyon atlandı (gorev_hatirlatici): {e}")
 
+        try:
+            await conn.execute(
+                "ALTER TABLE coins ADD COLUMN IF NOT EXISTS sahip_arka_planlar JSONB DEFAULT '[]'"
+            )
+        except Exception as e:
+            log.debug(f"Migrasyon atlandı (sahip_arka_planlar): {e}")
+
     log.info("✅ Migrasyon tamamlandı.")
 
 
@@ -460,6 +467,32 @@ async def set_aktif_rozet(discord_id: int, rozet_id: str) -> None:
         await conn.execute(
             "UPDATE coins SET aktif_rozet = $2 WHERE discord_id = $1",
             discord_id, rozet_id
+        )
+
+
+# ── Arka plan sahiplik sistemi ────────────────────────────────────────────────
+
+async def get_sahip_arka_planlar(discord_id: int) -> list[str]:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT sahip_arka_planlar FROM coins WHERE discord_id = $1", discord_id
+        )
+        if not row:
+            return []
+        val = row["sahip_arka_planlar"]
+        if isinstance(val, str):
+            return json.loads(val)
+        return list(val) if val else []
+
+
+async def add_sahip_arka_plan(discord_id: int, ap_id: str) -> None:
+    liste = await get_sahip_arka_planlar(discord_id)
+    if ap_id not in liste:
+        liste.append(ap_id)
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE coins SET sahip_arka_planlar = $2::jsonb WHERE discord_id = $1",
+            discord_id, json.dumps(liste)
         )
 
 

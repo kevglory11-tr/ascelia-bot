@@ -77,22 +77,14 @@ ROZET_MAGAZA = [
 # fiyat: ilgili para biriminden tutar
 
 PROFIL_ARKA_PLANLAR_STATIK = [
-    {"id": "varsayilan",  "isim": "Varsayilan",  "renk": "2b2d31", "fiyat": 0,    "para_birimi": "coin", "emoji": "⬛"},
-    {"id": "kirmizi",     "isim": "Kirmizi",     "renk": "922b21", "fiyat": 300,  "para_birimi": "coin", "emoji": "\U0001f7e5"},
-    {"id": "mavi",        "isim": "Mavi",        "renk": "1a5276", "fiyat": 300,  "para_birimi": "coin", "emoji": "\U0001f7e6"},
-    {"id": "mor",         "isim": "Mor",         "renk": "6c3483", "fiyat": 300,  "para_birimi": "coin", "emoji": "\U0001f7ea"},
-    {"id": "altin",       "isim": "Altin",       "renk": "9a7d0a", "fiyat": 500,  "para_birimi": "coin", "emoji": "\U0001f7e8"},
-    {"id": "zumrut",      "isim": "Zumrut",      "renk": "1e8449", "fiyat": 500,  "para_birimi": "coin", "emoji": "\U0001f7e9"},
-    {"id": "gunes",       "isim": "Gunes",       "renk": "ca6f1e", "fiyat": 500,  "para_birimi": "coin", "emoji": "\U0001f7e7"},
-    {"id": "galaksi",     "isim": "Galaksi",     "renk": "4a235a", "fiyat": 800,  "para_birimi": "coin", "emoji": "\U0001f52e"},
-    {"id": "ejder",       "isim": "Ejder",       "renk": "641e16", "fiyat": 800,  "para_birimi": "coin", "emoji": "\U0001f409"},
-    {"id": "efsane",      "isim": "Efsane",      "renk": "784212", "fiyat": 1000, "para_birimi": "coin", "emoji": "⚡"},
-    {"id": "gojo_statik", "isim": "Gojo",        "renk": "6c3483", "fiyat": 1,    "para_birimi": "gem",  "emoji": "\U0001f7e3"},
+    {"id": "varsayilan",  "isim": "Varsayilan", "renk": "2b2d31", "fiyat": 0, "para_birimi": "gem", "emoji": "⬛"},
+    {"id": "gojo_statik", "isim": "Gojo",       "renk": "6c3483", "fiyat": 1, "para_birimi": "gem", "emoji": "\U0001f7e3"},
 ]
 
 PROFIL_ARKA_PLANLAR_HAREKETLI = [
-    {"id": "gojo_hareketli", "isim": "Gojo Hareketli", "renk": "6c3483", "fiyat": 4, "para_birimi": "gem", "emoji": "✨"},
+    {"id": "gojo_hareketli", "isim": "Gojo", "renk": "6c3483", "fiyat": 4, "para_birimi": "gem", "emoji": "✨"},
 ]
 
-# Geriye dönük uyumluluk için kombine liste (tüm cog'larda _arka_plan_renk için kullanılır)
+# Geriye dönük uyumluluk — renk adlı eski ID'ler URL map'te tutulur,
+# burada sadece aktif arka planların renk/isim araması için kullanılır.
 PROFIL_ARKA_PLANLAR = PROFIL_ARKA_PLANLAR_STATIK + PROFIL_ARKA_PLANLAR_HAREKETLI
